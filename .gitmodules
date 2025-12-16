@@ -1,0 +1,3 @@
+[submodule "rlib-MML/rlib-MML"]
+	path = rlib-MML/rlib-MML
+	url = https://github.com/tr-takatsuka/rlib-MML

@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>sample soundfont</title>
+    <style>
+      #output {
+        width: 100%;
+        height: calc(100vh - 100px);
+        margin: 0 auto;
+        margin-top: 10px;
+        border-left: 0px;
+        border-right: 0px;
+        padding-left: 0px;
+        padding-right: 0px;
+        display: block;
+        background-color: black;
+        color: white;
+        font-family: 'Lucida Console', Monaco, monospace;
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <textarea id="output" rows="8"></textarea>
+    <br/>
+    <!-- <input type="number" id="count" value="100" min="1" max="10000" />
+    <button id="buttonTest">Fibonacci</button> -->
+
+    <!-- <script async type="text/javascript" src="./out/build/emsdk-Release/rlibsoundfontdecoder.js"></script> -->
+    <!-- <input id="smffileinput" type="file" accept=".sf2"/> -->
+
+    <button id="loadwasmdebug">Load wasm debug</button>
+    <button id="loadwasmrelease">Load wasm release</button>
+    <button id="loadsoundfont">Load soundfont</button>
+    <button id="soundfontinfo">soundfont info</button>
+    <button id="deletesoundfont">Delete soundfont</button>
+
+    <button id="smftowav">SmfToWav</button>
+
+    <button id="testload">TestLoad</button>
+    <script>
+      document.getElementById("testload").addEventListener("click", async () => {
+        try {
+
+          const ModuleSoundfont = await import('./out/build/emsdk-Debug/rlibsoundfontdecoder.js');
+          const aaaa = ModuleSoundfont.default();
+          const bbbb = await aaaa;
+          const ccc = bbbb.asyncFunction();
+
+          const moduleRlib = await import('./out/build/emsdk-Debug/rlibmml.js');
+
+          console.log('Module loaded', moduleRlib);
+          // moduleオブジェクトを使用して機能を呼び出す
+          moduleRlib.default.onRuntimeInitialized = function () {
+            console.log('WASM module loaded');
+            // Use the Module as needed
+          };
+          //  const promiseRlibSoundfont = moduleRlib();
+          // const instance = await promiseRlibSoundfont;
+
+        } catch (e) {
+          console.error(`exception:${e.message}`);
+        }
+      });
+
+      const functions = {
+        loadSoundfont: async (module, uint8Array) => {
+          return new Promise(async (resolve, reject) => {
+            try {
+              const future = module.loadSoundfont(uint8Array);
+              const retry = () => {
+                if (future.isProgress()) {
+                  setTimeout(() => retry(), 100);
+                } else {
+                  const result = future.get();
+                  future.delete();
+                  if (result.errorCode) {
+                    throw Error(result.message);
+                  }
+                  resolve(result.result);
+                }
+              };
+              retry();
+            } catch (e) {
+              console.error(e);
+              reject(e);
+            }
+          });
+        },
+
+        smfToWav: async (module, soundfont, uint8Array) => {
+          return new Promise(async (resolve, reject) => {
+            try {
+              const future = module.smfToWav(soundfont, uint8Array);
+              const retry = () => {
+                if (future.isProgress()) {
+                  setTimeout(() => retry(), 100);
+                } else {
+                  const result = future.get();
+                  resolve(result);
+                  future.delete();
+                }
+              };
+              retry();
+            } catch (e) {
+              console.error(e);
+              reject(e);
+            }
+          });
+        },
+
+      };
+
+      let store = {
+        module: undefined,
+        soundfont: undefined,
+      };
+
+      document.getElementById("loadwasmdebug").addEventListener('click', async (ev) => {
+        const ModuleSoundfont = await import('./out/build/emsdk-Debug/rlibsoundfontdecoder.js');
+        store.module = await ModuleSoundfont.default();
+      });
+      document.getElementById("loadwasmrelease").addEventListener('click', async (ev) => {
+        const ModuleSoundfont = await import('./out/build/emsdk-Release/rlibsoundfontdecoder.js');
+        store.module = await ModuleSoundfont.default();
+      });
+      document.getElementById("loadsoundfont").addEventListener('click', async (ev) => {
+        try {
+          if (!store.module) {
+            throw Error('failed. wasm module not loaded');
+          }
+          const [handle] = await (async () => {
+            try {
+              return await window.showOpenFilePicker({
+                types: [{ accept: { "sf2/*": [".sf2"] } }],
+              });
+            } catch (e) {
+              throw true;
+            }
+          })();
+          if (store.soundfont) store.soundfont.delete();
+          store.soundfont = await (async () => {
+            const file = await handle.getFile();
+            const uint8Array = new Uint8Array(await file.arrayBuffer());
+            return functions.loadSoundfont(store.module, uint8Array);
+          })();
+          console.log("soundfont loaded.");
+        } catch (e) {
+          if (e === true) return;
+          window.alert(`${e.message}`);
+          console.error(e);
+        }
+      });
+
+      document.getElementById("deletesoundfont").addEventListener('click', async (ev) => {
+        store.soundfont.delete(); 
+      });
+
+      document.getElementById("soundfontinfo").addEventListener('click', async (ev) => {
+        const info = store.soundfont.info();
+        console.log(JSON.stringify(info,null,"  "));
+      });
+
+      document.getElementById("smftowav").addEventListener("click", async () => {
+        try {
+          if (!store.soundfont) {
+            throw Error('failed. soundfont not loaded');
+          }
+          const [handle] = await (async () => {
+            try {
+              return await window.showOpenFilePicker({
+                types: [{ accept: { 'smf/*': ['.smf', ".mid"] } }]
+              });
+            } catch (e) {
+              throw true;
+            }
+          })();
+
+          const file = await handle.getFile();
+          const result = await (async () => {
+            const uint8Array = new Uint8Array(await file.arrayBuffer());
+            return functions.smfToWav(store.module, store.soundfont, uint8Array);
+          })();
+          if (!result.ok) {
+            throw Error(result.message);
+          }
+          const blob = new Blob([result.result], { type: "audio/wav" });
+
+          // download
+          const a = document.createElement("a");
+          a.download = `${file.name}.wav`;
+          a.href = URL.createObjectURL(blob);
+          const click = new MouseEvent("click", { bubbles: false, cancelable: false });
+          a.dispatchEvent(click);
+        } catch (e) {
+          if (e === true) return;
+          window.alert(`${e.message}`);
+          console.error(e);
+        }
+      });
+
+    </script>
+  </body>
+</html>
