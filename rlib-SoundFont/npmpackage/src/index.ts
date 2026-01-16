@@ -1,19 +1,20 @@
-
-
 export class RlibSoundfont {
   private workerPromise;
   private seq = 0;
-  private pending = new Map<number, { resolve: (value: unknown) => void, reject: (reason?: any) => void }>();
+  private pending = new Map<number, { resolve: (value: unknown) => void; reject: (reason?: any) => void }>();
 
   constructor() {
     this.workerPromise = (async () => {
       const worker = await (async () => {
-        const url = new URL("./worker.js", import.meta.url);
+        const workerCode = process.env.WORKER_CODE as string;
         if (typeof window !== "undefined" && typeof (window as any).Worker !== "undefined") {
+          // Browser
+          const url = URL.createObjectURL(new Blob([workerCode], { type: "text/javascript" }));
           return new window.Worker(url, { type: "module" });
         }
+        // Node.js
         const { Worker: NodeWorker } = await import("node:worker_threads");
-        return new (NodeWorker as any)(url, { type: "module" });
+        return new (NodeWorker as any)(workerCode, { eval: true, type: "module" });
       })();
       // onmessage
       const handler = (data: any) => {
@@ -81,5 +82,4 @@ export class RlibSoundfont {
   async smfToWav(smf: Uint8Array): Promise<Uint8Array> {
     return this.call("smfToWav", { smf }, [smf.buffer]);
   }
-
 }
