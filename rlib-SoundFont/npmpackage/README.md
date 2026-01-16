@@ -4,7 +4,11 @@ SoundFont (.sf2) decoder for Web / Node.js using WebAssembly.
 
 ## Repository
 
-GitHub: https://github.com/thinkridge/rlib-Sounds
+- **Monorepo root**  
+  https://github.com/thinkridge/rlib-Sounds
+
+- **Package location (@thinkridge/rlib-soundfont)**  
+  https://github.com/thinkridge/rlib-Sounds/tree/main/rlib-SoundFont/npmpackage
 
 ## Installation
 

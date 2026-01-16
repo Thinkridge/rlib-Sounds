@@ -1,6 +1,6 @@
 {
   "name": "@thinkridge/rlib-soundfont",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "publishConfig": {
     "access": "public"
   },
@@ -34,12 +34,14 @@
     "build": "npm run build:wasm && tsup"
   },
   "devDependencies": {
+    "@types/node": "^20",
     "tsup": "^8.5.1",
     "typescript": "^5.4.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/thinkridge/rlib-Sounds"
+    "url": "git+https://github.com/thinkridge/rlib-Sounds",
+    "directory": "rlib-SoundFont/npmpackage"
   },
   "bugs": {
     "url": "https://github.com/thinkridge/rlib-Sounds/issues"
