@@ -41,7 +41,7 @@ https://github.com/tr-takatsuka/rlib-MML/blob/master/README.md#mml-music-macro-l
 
 ## License
 
-MIT
+MIT © Thinkridge Co., Ltd.
 
 ### Notes
 

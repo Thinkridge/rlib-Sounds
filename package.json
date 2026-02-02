@@ -9,6 +9,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev:reactdemo": "npm run dev --workspace=react-demo",
+    "dev:nextdemo": "npm run dev --workspace=next-demo",
     "dev:smftowav": "npm run dev --workspace=smftowav-node",
     "dev:rlibmml": "npm run dev --workspace=rlibmml-node"
   }
