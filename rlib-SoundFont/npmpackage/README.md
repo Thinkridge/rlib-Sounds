@@ -37,7 +37,7 @@ try {
 
 ## License
 
-MIT
+MIT © Thinkridge Co., Ltd.
 
 ## Build
 

@@ -11,10 +11,11 @@ export class RlibSoundfont {
           // Browser
           const url = URL.createObjectURL(new Blob([workerCode], { type: "text/javascript" }));
           return new window.Worker(url, { type: "module" });
+        } else {
+          // Node.js
+          const mod = await (new Function("return import('node:worker_threads')") as () => Promise<any>)(); // バンドラに解決させない
+          return new mod.Worker(workerCode, { eval: true, type: "module" });
         }
-        // Node.js
-        const { Worker: NodeWorker } = await import("node:worker_threads");
-        return new (NodeWorker as any)(workerCode, { eval: true, type: "module" });
       })();
       // onmessage
       const handler = (data: any) => {

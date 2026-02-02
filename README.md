@@ -90,6 +90,7 @@ npm install
 npm run build
 
 npm run dev:reactdemo
+npm run dev:nextdemo
 npm run dev:smftowav
 npm run dev:rlibmml
 ```
