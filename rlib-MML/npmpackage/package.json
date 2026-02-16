@@ -1,6 +1,6 @@
 {
   "name": "@thinkridge/rlib-mml",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "publishConfig": {
     "access": "public"
   },
@@ -26,7 +26,7 @@
   },
   "types": "dist/index.d.ts",
   "scripts": {
-    "build:wasm": "docker run --rm --name emsdk -v ./../rlib-MML/:/opt/vol -w /opt/vol -it emsdk \"cd wasm && mkdir -p build && cd build && emcmake cmake .. && make\"",
+    "build:wasm": "docker run --rm --name emsdk -v ./../rlib-MML/:/opt/vol -w /opt/vol -it emsdk \"emcmake cmake -S ./wasm -B ./wasm/build && cmake --build ./wasm/build\"",
     "build": "npm run build:wasm && tsup src/index.ts --dts --format cjs,esm"
   },
   "devDependencies": {
