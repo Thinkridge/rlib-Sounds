@@ -25,9 +25,10 @@ import { getRlibMml } from "@thinkridge/rlib-mml";
 try {
   const rlibMml = await getRlibMml();
   const mml = await fs.readFile("test.mml", "utf8");
-  const smf = rlibMml.mmlToSmf(mml); // MML -> SMF (Standard MIDI File)
-  await fs.writeFile("test.mid", smf);
-  const decMml = rlibMml.smfToMml(smf); // SMF -> MML
+  const r = rlibMml.mmlToSmf(mml); // MML -> SMF (Standard MIDI File)
+  if (!r.smf) throw new Error(JSON.stringify(r.errors));  // succeeded?
+  await fs.writeFile("test.mid", r.smf);
+  const decMml = rlibMml.smfToMml(r.smf); // SMF -> MML
   await fs.writeFile("smftomml.mml", decMml);
 } catch (e) {
   console.error(e);

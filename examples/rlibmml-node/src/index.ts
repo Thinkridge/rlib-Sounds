@@ -42,8 +42,9 @@ try {
       .option("-o, --output <file>", "output SMF file (default: stdout)")
       .action(async (opts) => {
         const mml = await readInputText(opts.input);
-        const smf = rlibMml.mmlToSmf(mml);
-        await writeOutput(smf, opts.output);
+        const r = rlibMml.mmlToSmf(mml);
+        if (!r.smf) throw new Error(JSON.stringify(r.errors));
+        await writeOutput(r.smf, opts.output);
       }),
   );
 
