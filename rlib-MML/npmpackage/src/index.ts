@@ -1,5 +1,4 @@
 
-
 let promiseRlibMml: Promise<any>;
 export const getRlibMml = async () => {
   if (!promiseRlibMml) {
@@ -12,13 +11,27 @@ export const getRlibMml = async () => {
     mmlToSmf: (mml: string) => {
       const r = instance.mmlToSmf(mml) as {
         result: Uint8Array;
-        message?: undefined;
+        error: undefined;
       } | {
         result: undefined;
-        message: string;
+        error: string;
       };
-      if (!r.result) throw new Error(r.message);
-      return r.result;
+      if (r.result) {
+        return { smf: r.result, errors: undefined };
+      }
+      try {
+        return {
+          smf: undefined,
+          errors: (JSON.parse(r.error) as any)["errors"] as {
+            code: number;
+            line: number;
+            column: number;
+            message: string;
+          }[],
+        }
+      } catch (e) {
+        throw new Error(r.error);
+      }
     },
     smfToMml: (smf: Uint8Array) => {
       const r = instance.smfToMml(smf) as {
