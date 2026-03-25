@@ -66,7 +66,8 @@ namespace rlib::soundfont {
 
 			i.rootKey = [&] {
 				auto r = getAmount(GenOperator::overridingRootKey);
-				return std::holds_alternative<int16_t>(r) ? std::get<int16_t>(r) : instrumentSample.spSample->originalKey;
+				auto p = std::get_if<int16_t>(&r);
+				return p ? *p : instrumentSample.spSample->originalKey;
 			}();
 
 			i.sampleModes = std::get<enumSampleMode>(getAmount(GenOperator::sampleModes));
@@ -116,7 +117,7 @@ namespace rlib::soundfont {
 	public:
 
 		// volume用 振幅値(0.0～1.0)テーブル
-		static const std::array<T, 128> volumeAmplitudeTable;
+		static const std::array<T, 128> volumeGainTable;
 
 	private:
 
@@ -298,7 +299,7 @@ namespace rlib::soundfont {
 
 				{// 振幅値(sampleに掛ける値)
 					T a = interInfo.initialAttenuationAmplitude;	// generator.initialAttenuation 反映
-					a *= volumeAmplitudeTable[note.m_presetKey.velocity];	// ベロシティ (ベロシティには推奨式が定義されてないがvolumeの推奨式と同等とする)
+					a *= volumeGainTable[note.m_presetKey.velocity];	// ベロシティ (ベロシティには推奨式が定義されてないがvolumeの推奨式と同等とする)
 					result.amplitude.l = a * interInfo.pan.first;
 					result.amplitude.r = a * interInfo.pan.second;
 				}
@@ -474,12 +475,11 @@ namespace rlib::soundfont {
 	};
 
 	// volume用 振幅値(0.0～1.0)テーブル
-	template <typename T> const std::array<T, 128> RendererT<T>::volumeAmplitudeTable = [] {
+	template <typename T> const std::array<T, 128> RendererT<T>::volumeGainTable = [] {
 		std::array<T, 128> table = {};
 		for (int n = 0; n < table.size(); n++) {
-			T m = n * (static_cast<T>(1) / 127);					// 0.0～1.0
-			T db = static_cast<T>(40.0) * std::log10(m);			// dBを算出 GM2仕様：gain[dB] = 40 * log10(cc7/127)
-			table[n] = math::pow10(db * (static_cast<T>(1) / 20));	// 振幅値(0.0～1.0)を算出 std::pow(10, db / 20.0);
+			T m = n * (static_cast<T>(1) / 127);	// 0.0～1.0
+			table[n] = m * m;						// 振幅値(0.0～1.0)を算出 「GM2仕様：gain[dB] = 40 * log10(cc7/127)」 から cc7/127 の2乗
 		}
 		return table;
 	}();

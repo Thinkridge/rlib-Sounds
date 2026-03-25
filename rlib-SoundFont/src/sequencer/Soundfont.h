@@ -266,7 +266,7 @@ namespace rlib::soundfont {
 				read(is, s.data(), s.size(), errMessage);	// 末尾の \0 も含めてコピー( \0 がないケースを考慮)
 				s.resize(std::strlen(s.c_str()));			// \0 以降を削除
 			};
-			const std::map<std::vector<std::array<int8_t, 4>>, std::function<void(const ChunkHead&, std::istream&)>> map = {
+			const std::map<std::vector<std::array<std::byte, 4>>, std::function<void(const ChunkHead&, std::istream&)>> map = {
 				{{id("sfbk"),id("INFO"),id("ifil")},[&](const ChunkHead& h,auto& is) {		// ファイルが基づくSoundFont規格バージョン
 					if (h.size != sizeof(doc.info.ifil)) throw std::runtime_error("ifil chunk error");
 					read(is,&doc.info.ifil,sizeof(doc.info.ifil),"ifil chunk error");
@@ -349,7 +349,7 @@ namespace rlib::soundfont {
 				}},
 			};
 
-			std::vector<std::array<int8_t, 4>> types;
+			std::vector<std::array<std::byte, 4>> types;
 			readRiff(
 				is,
 				[&](const ChunkList& info) {

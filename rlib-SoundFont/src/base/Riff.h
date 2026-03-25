@@ -7,10 +7,10 @@ namespace rlib {
 
 		namespace inner {
 
-			template <int N> constexpr std::array<int8_t, N> toArray(const char(&s)[N + 1]) {
-				std::array<int8_t, N> arr{};
+			template <int N> constexpr std::array<std::byte, N> toArray(const char(&s)[N + 1]) {
+				std::array<std::byte, N> arr{};
 				for (size_t i = 0; i < N; ++i) {
-					arr[i] = static_cast<int8_t>(s[i]);
+					arr[i] = static_cast<std::byte>(s[i]);
 				}
 				return arr;
 			}
@@ -19,11 +19,11 @@ namespace rlib {
 #pragma pack( push )
 #pragma pack( 1 )
 		struct ChunkHead {
-			std::array<int8_t, 4> id;
+			std::array<std::byte, 4> id;
 			uint32_t size = 0;
 		};
 		struct ChunkList : ChunkHead {
-			std::array<int8_t, 4> type;
+			std::array<std::byte, 4> type;
 		};
 #pragma pack( pop )
 
@@ -100,16 +100,16 @@ namespace rlib {
 		class Chunk {
 		public:
 			struct Chunks {			// (default)
-				std::array<int8_t, 4>	type;
+				std::array<std::byte, 4>	type;
 				std::vector<Chunk>		chunks;
 			};
 			struct Data {
-				std::array<int8_t, 4>	id;
-				std::vector<int8_t>		data;
+				std::array<std::byte, 4>	id;
+				std::vector<std::byte>		data;
 			};
 			struct DataRef {		// À‘Ì‚ğ©‘O‚Å‚Í‚½‚È‚¢
 				struct Info {
-					std::array<int8_t, 4>	id;
+					std::array<std::byte, 4>	id;
 					const void* data;
 					uint32_t				size;
 				};

@@ -30,6 +30,11 @@ namespace rlib::string {
 		CString s(CA2T(psz, CP_UTF8));	// UTF8 → CString
 		return s;
 	}
+#ifdef __cpp_lib_char8_t
+	inline CString Utf8toT(const char8_t* psz) {
+		return Utf8toT(reinterpret_cast<const char*>(psz));
+	}
+#endif
 
 	// CString → UTF8
 	inline std::string TtoUtf8(LPCTSTR lpsz) {
@@ -71,7 +76,7 @@ namespace rlib::string {
 	inline std::string trim(const std::string& s) {
 		// boost::regex で全角スペースを正しく処理する術がわからない。バイナリとして扱うことも不可だった。
 		std::smatch m;
-		static const std::regex re(u8R"(^(\s|　)*([\s\S]+?)(\s|　)*$)");
+		static const std::regex re(R"(^(\s|　)*([\s\S]+?)(\s|　)*$)");
 		if (std::regex_search(s, m, re)) {
 			if (auto sm = m[2]; sm.matched) {
 				return sm.str();

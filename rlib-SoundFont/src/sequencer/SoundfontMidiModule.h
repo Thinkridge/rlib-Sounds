@@ -13,23 +13,20 @@ namespace rlib::soundfont {
 
 	template <typename T = double> class MidiModuleT : public midi::MidiModuleBase<T> {
 
-		// pan用 振幅値(0.0～1.0)テーブル
-		static const std::array<std::pair<T, T>, 128> panAmplitudeTable;
+		using Bit14 = midi::utility::Bit14;
 
-		struct PairByte {
-			uint8_t			msb = 0;
-			uint8_t			lsb = 0;
-			uint16_t no()const {
-				return (static_cast<uint16_t>(msb) << 7) | lsb;
-			}
-		};
+		// pan用 振幅値(0.0～1.0)テーブル
+		static const std::array<std::pair<T, T>, 128> panGainTable;
 
 		struct Channel{
 			const uint8_t	m_channel;
 			uint16_t		m_bank = 0;
 			uint8_t			m_programNo = 0;
 			uint8_t			m_volume = 100;			// 0～127
+			uint8_t			m_expression = 127;		// 0～127
 			uint8_t			m_pan = 64;				// 0～127
+
+			std::optional<std::pair<T, T>> m_gain;	// volume,expression,pan,masterVolume を掛け合わせたl,r振幅値 (0.0～1.0)
 
 			struct Pitch{
 				struct Info {
@@ -55,10 +52,10 @@ namespace rlib::soundfont {
 			double			m_fineTune = 0.0;		// -1(半音下)～0～1(半音上)  
 			int8_t			m_coarseTune = 0;		// -64～0～63 (半音単位)
 
-			PairByte				m_backselect;
-			std::optional<PairByte>	m_nrpn;
-			std::optional<PairByte>	m_rpn;
-			PairByte				m_dataEntry;
+			Bit14					m_backselect;
+			std::optional<Bit14>	m_nrpn;
+			std::optional<Bit14>	m_rpn;
+			Bit14					m_dataEntry;
 
 			std::map<uint8_t, std::list<std::shared_ptr<typename RendererT<T>::Note>>>	m_notes;
 
@@ -67,8 +64,7 @@ namespace rlib::soundfont {
 			{
 				if (channel == 9) {
 					m_bank = 0x80;		// soundfontのリズムパートは 128(0x80)
-					m_backselect.lsb = m_bank & 0x7f;
-					m_backselect.msb = m_bank >> 7;
+					m_backselect.value = m_bank;
 				}
 			}
 
@@ -81,6 +77,7 @@ namespace rlib::soundfont {
 
 		};
 		std::set<Channel, typename Channel::Less>	m_channels;
+		uint16_t	m_masterVolume = 16383;	// マスターボリューム 0-～16383 (14bit)
 
 		Channel& ensureChannel(uint8_t channel) {
 			if (auto i = m_channels.find(channel); i != m_channels.end() ){
@@ -132,16 +129,15 @@ namespace rlib::soundfont {
 
 			const auto procDataEntry = [&](auto& ch) {
 				if (ch.m_rpn) {
-					switch (static_cast<EventControlChange::RpnType>(ch.m_rpn->no())) {
+					switch (static_cast<EventControlChange::RpnType>(ch.m_rpn->value)) {
 					case EventControlChange::RpnType::pitchBendRange:	// ベンドレンジ(ピッチ・ベンド・センシティビティ)
 						ch.m_pitch.set(ch.m_pitch.get().pitchBend, ch.m_dataEntry.msb);
 						break;
-					case EventControlChange::RpnType::fineTune:
-						{
-							const int val = ch.m_dataEntry.no() - 8192;
-							ch.m_fineTune = val / ((val >= 0 ? 8191 : 8192) / 1.0);
-						}
+					case EventControlChange::RpnType::fineTune: {
+						const int val = ch.m_dataEntry.value - 8192;
+						ch.m_fineTune = val / ((val >= 0 ? 8191 : 8192) / 1.0);
 						break;
+					}
 					case EventControlChange::RpnType::coarseTune:
 						ch.m_coarseTune = ch.m_dataEntry.msb - 64;
 						break;
@@ -151,67 +147,73 @@ namespace rlib::soundfont {
 				}
 			};
 
-			switch(ev.type){
-			case EventControlChange::Type::volume:
-				channel().m_volume = ev.value;
+			switch (ev.type) {
+			case EventControlChange::Type::volume: {
+				auto& ch = channel();
+				ch.m_volume = std::min<decltype(Channel::m_volume)>(ev.value, 127);
+				ch.m_gain = std::nullopt;	// 要再計算
 				break;
-			case EventControlChange::Type::pan:
-				channel().m_pan = ev.value;
+			}
+			case EventControlChange::Type::expression: {
+				auto& ch = channel();
+				ch.m_expression = std::min<decltype(Channel::m_expression)>(ev.value, 127);
+				ch.m_gain = std::nullopt;	// 要再計算
 				break;
+			}
+			case EventControlChange::Type::pan: {
+				auto& ch = channel();
+				ch.m_pan = std::min<decltype(Channel::m_pan)>(ev.value, 127);
+				ch.m_gain = std::nullopt;	// 要再計算
+				break;
+			}
 			case EventControlChange::Type::bankSelectMSB:
 				channel().m_backselect.msb = ev.value;
 				break;
 			case EventControlChange::Type::bankSelectLSB:
 				channel().m_backselect.lsb = ev.value;
 				break;
-			case EventControlChange::Type::nrpnLSB:
-				{
-					auto& ch = channel();
-					ch.m_rpn.reset();
-					ch.m_nrpn = channel().m_rpn.value_or(PairByte());
-					ch.m_nrpn->lsb = ev.value;
-				}
+			case EventControlChange::Type::nrpnLSB: {
+				auto& ch = channel();
+				ch.m_rpn.reset();
+				ch.m_nrpn = channel().m_rpn.value_or(Bit14());
+				ch.m_nrpn->lsb = ev.value;
 				break;
-			case EventControlChange::Type::nrpnMSB:
-				{
-					auto& ch = channel();
-					ch.m_rpn.reset();
-					ch.m_nrpn = channel().m_rpn.value_or(PairByte());
-					ch.m_nrpn->msb = ev.value;
-				}
+			}
+			case EventControlChange::Type::nrpnMSB: {
+				auto& ch = channel();
+				ch.m_rpn.reset();
+				ch.m_nrpn = channel().m_rpn.value_or(Bit14());
+				ch.m_nrpn->msb = ev.value;
 				break;
-			case EventControlChange::Type::rpnLSB:
-				{
-					auto &ch = channel();
-					ch.m_nrpn.reset();
-					ch.m_rpn = channel().m_rpn.value_or(PairByte());
-					ch.m_rpn->lsb = ev.value;
-				}
+			}
+			case EventControlChange::Type::rpnLSB: {
+				auto& ch = channel();
+				ch.m_nrpn.reset();
+				ch.m_rpn = channel().m_rpn.value_or(Bit14());
+				ch.m_rpn->lsb = ev.value;
 				break;
-			case EventControlChange::Type::rpnMSB:
-				{
-					auto& ch = channel();
-					ch.m_nrpn.reset();
-					ch.m_rpn = channel().m_rpn.value_or(PairByte());
-					ch.m_rpn->msb = ev.value;
-				}
+			}
+			case EventControlChange::Type::rpnMSB: {
+				auto& ch = channel();
+				ch.m_nrpn.reset();
+				ch.m_rpn = channel().m_rpn.value_or(Bit14());
+				ch.m_rpn->msb = ev.value;
 				break;
-			case EventControlChange::Type::dataEntryMSB:
-				{
-					auto& ch = channel();
-					ch.m_dataEntry.lsb = 0;
-					ch.m_dataEntry.msb = ev.value;
-					procDataEntry(ch);
-				}
+			}
+			case EventControlChange::Type::dataEntryMSB: {
+				auto& ch = channel();
+				ch.m_dataEntry.lsb = 0;
+				ch.m_dataEntry.msb = ev.value;
+				procDataEntry(ch);
 				break;
-			case EventControlChange::Type::dataEntryLSB:
-				{
-					auto& ch = channel();
-					ch.m_dataEntry.lsb = ev.value;
-					procDataEntry(ch);
-				}
-			break;
-				default:
+			}
+			case EventControlChange::Type::dataEntryLSB: {
+				auto& ch = channel();
+				ch.m_dataEntry.lsb = ev.value;
+				procDataEntry(ch);
+				break;
+			}
+			default:
 				break;
 			}
 		}
@@ -221,7 +223,7 @@ namespace rlib::soundfont {
 			const EventProgramChange& ev = static_cast<decltype(ev)>(event);
 			auto& channel = ensureChannel(ev.channel);
 			channel.m_programNo = ev.programNo;
-			channel.m_bank = static_cast<int16_t>(channel.m_backselect.msb) * 0x80 + channel.m_backselect.lsb;
+			channel.m_bank = channel.m_backselect.value;
 		}
 
 		void eventPitchBend(const midi::Event& event) {
@@ -232,20 +234,48 @@ namespace rlib::soundfont {
 			channel.m_pitch.set(ev.pitchBend, before.pitchBendRange);
 		}
 
+		void eventSystemExclusive(const midi::Event& event) {
+			using namespace midi;
+			const EventSystemExclusive& ev = static_cast<decltype(ev)>(event);
+
+			auto isMatch = [](const std::vector<uint8_t>& data, const std::initializer_list<int16_t>& pattern) {
+				if (data.size() < pattern.size()) return false;
+				auto it = data.begin();
+				for (auto p : pattern) {
+					if (p >= 0 && *it != p) return false;	// 0未満はワイルドカード
+					it++;
+				}
+				return true;
+			};
+
+			// マスターボリューム
+			if (isMatch(ev.data, { -1, 0x7f, -1, 0x4, 0x1, -1, -1 })) {
+				Bit14 u;
+				u.lsb = ev.data[5];
+				u.msb = ev.data[6];
+				m_masterVolume = u.value;
+				for (auto& ch : m_channels) const_cast<Channel&>(ch).m_gain = std::nullopt;	// 全チャンネル要再計算
+				return;
+			}
+
+		}
+
 	public:
 		RendererT<T>	m_renderer;
 
 		const uint32_t		m_sampleRate;
+		uint32_t getSampleRate()const override { return m_sampleRate; }
 
 		void setMidiEvent(const midi::Event& ev)override {
 			using namespace midi;
 
 			static const std::map<std::type_index, void (MidiModuleT::*)(const midi::Event&)> map = {
-				{typeid(EventNoteOn),			&MidiModuleT::eventNoteOn		},
-				{typeid(EventNoteOff),			&MidiModuleT::eventNoteOff		},
+				{typeid(EventNoteOn),			&MidiModuleT::eventNoteOn			},
+				{typeid(EventNoteOff),			&MidiModuleT::eventNoteOff			},
 				{typeid(EventControlChange),	&MidiModuleT::eventControlChange	},
 				{typeid(EventProgramChange),	&MidiModuleT::eventProgramChange	},
-				{typeid(EventPitchBend),		&MidiModuleT::eventPitchBend	},
+				{typeid(EventPitchBend),		&MidiModuleT::eventPitchBend		},
+				{typeid(EventSystemExclusive),	&MidiModuleT::eventSystemExclusive	},
 			};
 			if (auto i = map.find(typeid(ev)); i != map.end()) {
 				(this->*(i->second))(ev);	// 実行
@@ -261,7 +291,7 @@ namespace rlib::soundfont {
 #endif
 			std::vector<std::future<std::vector<typename midi::StereoSample<T>>>> futureChannels;
 			for (auto& channel : m_channels) {
-				futureChannels.emplace_back(std::async(asyncLaunch, [&channel = const_cast<Channel&>(channel), size, asyncLaunch] {
+				futureChannels.emplace_back(std::async(asyncLaunch, [self = &std::as_const(*this), &channel = const_cast<Channel&>(channel), size, asyncLaunch] {
 #if 0
 					const T pitch = channel.m_pitchBend / ((channel.m_pitchBend >= 0 ? 8191 : 8192) / static_cast<T>(2.0));	// とりあえずベンドレンジは2固定
 					std::vector<typename RendererT<T>::Sample> result(size);
@@ -302,7 +332,7 @@ namespace rlib::soundfont {
 						if (result.empty()) {		// 最初なら代入(加算不要)
 							result = std::move(samples);
 						} else {
-							result.resize((std::max)(result.size(), samples.size()));
+							result.resize(std::max(result.size(), samples.size()));
 							for (size_t i = 0; i < samples.size(); i++) {
 								result[i].l += samples[i].l;
 								result[i].r += samples[i].r;
@@ -317,14 +347,15 @@ namespace rlib::soundfont {
 					}
 #endif
 
-					// volume & pan 処理
-					const auto pan = panAmplitudeTable[channel.m_pan];
-					const auto vol = RendererT<T>::volumeAmplitudeTable[channel.m_volume];
-					const auto mulL = pan.first * vol;
-					const auto mulR = pan.second * vol;
+					// 音量処理(channel.m_gain算出)
+					if (!channel.m_gain) {
+						const T n = RendererT<T>::volumeGainTable[channel.m_volume] * RendererT<T>::volumeGainTable[channel.m_expression] * (self->m_masterVolume * (static_cast<T>(1.0) / 16383)); // volume,expression,masterVolume
+						const auto& pan = panGainTable[channel.m_pan];
+						channel.m_gain = { n * pan.first, n * pan.second };
+					}
 					for (auto& r : result) {
-						r.l *= mulL;
-						r.r *= mulR;
+						r.l *= channel.m_gain->first;
+						r.r *= channel.m_gain->second;
 					}
 
 					return result;
@@ -346,7 +377,7 @@ namespace rlib::soundfont {
 				}
 			}
 
-#if 1
+#if 0
 #if 0
 			// マスターボリューム（下げる）
 			for (size_t i = 0; i < result.size(); i++) {
@@ -384,7 +415,7 @@ namespace rlib::soundfont {
 			return true;
 		}
 
-		MidiModuleT(std::shared_ptr<const Soundfont>& sp, uint32_t sampleRate)
+		MidiModuleT(std::shared_ptr<const Soundfont> sp, uint32_t sampleRate)
 			:m_renderer(sp, sampleRate)
 			, m_sampleRate(sampleRate)
 		{}
@@ -396,7 +427,7 @@ namespace rlib::soundfont {
 	};
 
 	// pan用 振幅値(0.0～1.0)テーブル
-	template <typename T> const std::array<std::pair<T, T>, 128> MidiModuleT<T>::panAmplitudeTable = [] {
+	template <typename T> const std::array<std::pair<T, T>, 128> MidiModuleT<T>::panGainTable = [] {
 		// General MIDI Level2  cc#10:パン
 		// Left  Channel Gain[dB] = 20 * log(cos(π / 2 * max(0, cc#10 - 1) / 126))
 		// Right Channel Gain[dB] = 20 * log(sin(π / 2 * max(0, cc#10 - 1) / 126))
@@ -404,10 +435,8 @@ namespace rlib::soundfont {
 		std::array<std::pair<T, T>, 128> table;
 		for (int n = 0; n < table.size(); n++) {
 			constexpr T pi2 = static_cast<T>(3.14159265358979323846 / 2 / 126);
-			const T m = pi2 * (std::max)(0, n - 1);
-			table[n] = std::pair(
-				math::pow10(std::log(std::cos(m))),
-				math::pow10(std::log(std::sin(m))));
+			const T m = pi2 * (std::max)(0, n - 1);			// -1オフセット=中央値は64
+			table[n] = std::pair(std::cos(m), std::sin(m));	// 振幅値なのでcos,sinのみ
 		}
 		return table;
 	}();

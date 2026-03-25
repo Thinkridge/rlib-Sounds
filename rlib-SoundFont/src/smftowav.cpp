@@ -49,17 +49,21 @@ int main(const int argc, const char* const argv[])
 	namespace po = boost::program_options;
 
 	try {
-		std::string input, pathSoundfont, pathSoundfontDir, output;
+		std::string input = "-", output = "-";
+		std::string pathSoundfont, pathSoundfontDir;
+		std::string outFormat = "wav";
 		po::options_description desc("options");
 		desc.add_options()
 			("version", "show version")
 			("help", "show help")
 			("preset", "show preset")
-			("input,i", po::value(&input)->required(), "input file (required)")				// 入力SMFファイルパス
+			("input,i", po::value(&input), "input file (mid)")								// 入力SMFファイルパス(mid)
 			("soundfont,s", po::value(&pathSoundfont)->required(), "input file (required)")	// 入力Soundfontファイルパス(デフォルトのsoundfont)
 			("soundfontDir,d", po::value(&pathSoundfontDir), "input folder")				// 入力Soundfontファイルフォルダ
-			("output,o", po::value(&output)->required(), "output file (required)")			// 出力Wavファイル
-			;
+			("output,o", po::value(&output), "output file (wav | pcm)")						// 出力ファイル
+			("out-format",
+				po::value(&outFormat)->default_value("wav"),
+				"output format (wav | pcm)");
 
 		po::positional_options_description pd;
 		// pd.add("input", -1);
@@ -68,7 +72,7 @@ int main(const int argc, const char* const argv[])
 		po::store(po::command_line_parser(argc, argv).options(desc).positional(pd).run(), vm);
 
 		if (vm.count("version")) {
-			std::cout << "smftowav version 1.0.4" << std::endl;
+			std::cout << "smftowav version 1.0.5" << std::endl;
 			return 0;
 		}
 
@@ -79,7 +83,7 @@ int main(const int argc, const char* const argv[])
 
 		if (vm.count("preset")) {
 			auto pathSoundfontDir = vm["soundfontDir"].as<std::string>();
-			auto sfDir = std::filesystem::u8path(pathSoundfontDir);
+			auto sfDir = std::filesystem::path(pathSoundfontDir);
 
 			const std::filesystem::path& directory = sfDir;
 			const std::string pattern("*.sf2");
@@ -111,44 +115,47 @@ int main(const int argc, const char* const argv[])
 		po::notify(vm);
 
 		const auto smf = [&] {
-			auto path = std::filesystem::u8path(input);
-			std::fstream fs(path, std::ios::in | std::ios::binary);
-			if (fs.fail()) {
-				throw std::runtime_error("input file open error.");
+			if (input != "-") {
+				auto path = std::filesystem::path(input);
+				std::ifstream fs(path, std::ios::in | std::ios::binary);
+				if (fs.fail()) throw std::runtime_error("input file open error.");
+				return midi::Smf::fromStream(fs);
 			}
-			return midi::Smf::fromStream(fs);
+			std::cin >> std::noskipws;  // 改行や空白を端折らない
+			return midi::Smf::fromStream(std::cin);
 		}();
 
-#if 0
-		const auto sf = [&] {
-			auto path = std::filesystem::u8path(pathSoundfont);
-			std::fstream fs(path, std::ios::in | std::ios::binary);
-			if (fs.fail()) {
-				throw std::runtime_error("soundfont file open error.");
+		const auto smfToWav = SmfToWav::create(smf);
+		const auto midiModules = smfToWav.makeMidiModules<float>(std::filesystem::path(pathSoundfont), std::filesystem::path(pathSoundfontDir), 44100);
+
+		std::ofstream ofs;
+		std::ostream& os = [&]() -> decltype(os) {
+			if (output != "-") {
+				const auto path = std::filesystem::path(output);
+				ofs.open(path, std::ios::out | std::ios::binary | std::ios::trunc);
+				if (ofs.fail()) throw std::runtime_error("output file open error.");
+				return ofs;
 			}
-			return soundfont::SoundfontT<float>::fromStream(fs);
-			}();
-
-		const Wav wav = rlib::smfToWav(smf, sf, 44100);
-#else
-		const auto smfToWav = rlib::SmfToWav::create(smf);
-		const Wav wav = smfToWav.toWavUsingPath<float>(std::filesystem::u8path(pathSoundfont), std::filesystem::u8path(pathSoundfontDir), 44100);
-#endif
-
-		auto path = std::filesystem::u8path(output);
-		std::fstream fs(path, std::ios::out | std::ios::binary | std::ios::trunc);
-		if (fs.fail()) {
-			throw std::runtime_error("output file open error.");
+			return std::cout;
+		}();
+		if (outFormat == "pcm") {
+			smfToWav.toPcm(midiModules.refMap, [&](auto& samples) {
+				using Sample = std::decay_t<decltype(samples.front())>;
+				static_assert(std::is_trivially_copyable_v<Sample>);
+				os.write(reinterpret_cast<const char*>(samples.data()),samples.size() * sizeof(Sample));
+			});
+		} else {
+			const auto wav = smfToWav.toWav(midiModules.refMap);
+			wav.exportFile(os);
 		}
-
-		wav.exportFile(fs);
+		os.flush();
 
 #if 0
 		try {
 			const sequencer::Smf smf = sequencer::mmlToSmf(mml);
 			auto fileImage = smf.getFileImage();
 
-			auto path = std::filesystem::u8path(output);
+			auto path = std::filesystem::path(output);
 			std::fstream fs(path, std::ios::out | std::ios::binary | std::ios::trunc);
 			if (fs.fail()) {
 				throw std::runtime_error("output file open error.");

@@ -9,7 +9,7 @@
 // toWavUsingPath 用
 #include "SoundfontMidiModule.h"
 #include "./SoundfontInfo.h"
-//#include "../fm/FmMidiModule.h"
+// #include "../fm/FmMidiModule.h"
 
 namespace rlib {
 
@@ -63,15 +63,108 @@ namespace rlib {
 			}
 
 			return SmfToWav(std::move(tempoList), std::move(mapEvents));
+		}
+
+		template <typename T = double, typename Callback> void toPcm(const std::map<std::string, std::reference_wrapper<midi::MidiModuleBase<T>>>& midiModuleMap, Callback callback) const {
+			if (midiModuleMap.empty()) throw std::runtime_error("MidiModules is empty.");
+			const auto sampleRate = midiModuleMap.begin()->second.get().getSampleRate();	// sampleRate は最初のものを採用。異なるものチェックは要検討
+
+			const auto combinedEvents = [&] {
+				std::multimap<midi::Smf::Event, std::reference_wrapper<midi::MidiModuleBase<T>>, midi::Smf::Event::Less> combinedEvents;
+				for (auto& i : m_mapEvents) {
+					auto it = midiModuleMap.find(i.first);
+					midi::MidiModuleBase<T>& midiModule = it != midiModuleMap.end() ? it->second : midiModuleMap.begin()->second;
+					for (auto& j : i.second) combinedEvents.emplace(j, midiModule);
+				}
+				return combinedEvents;
+			}();
+			if (combinedEvents.empty()) return;
+
+			struct {
+				const uint32_t m_sampleRate;
+				std::uintmax_t m_current = 0;
+				size_t next(double time) {
+					const auto next = static_cast<std::uintmax_t>(time * m_sampleRate);
+					const std::intmax_t needSize = next - m_current;
+					if (needSize < 0) throw std::runtime_error("readSamplesUntilTime failed time.");		// failsafe 
+					m_current += needSize;
+					return needSize;
+				}
+			}renderedSize{ sampleRate };
+
+			{// 先頭のイベントまでの無音
+				auto current = combinedEvents.cbegin();
+				const auto nextTime = m_tempoList.getTime(current->first.position);
+				const auto needSize = renderedSize.next(nextTime);
+				std::vector<midi::StereoSample<T>> samples(needSize);
+				callback(samples);
+			}
+
+			auto render = [&](size_t size) {
+				std::vector<midi::StereoSample<T>> samples;
+				for (auto& it : midiModuleMap) {
+					auto readed = it.second.get().readSamples(size);
+					if (samples.empty()) {
+						samples = std::move(readed);
+					} else {
+						samples.resize((std::max)(samples.size(), readed.size()));
+						for (size_t i = 0; i < readed.size(); i++) {
+							samples[i].l += readed[i].l;
+							samples[i].r += readed[i].r;
+						}
+					}
+				}
+
+				//for (auto& s : samples) {
+				//	constexpr T drive = static_cast<T>(1.35);
+				//	s.l = std::tanh(s.l * drive);
+				//	s.r = std::tanh(s.r * drive);
+				//}
+
+				samples.resize(size);	// 足りない分は0埋め
+				callback(samples);
+			};
+
+			for (auto current = combinedEvents.cbegin(); current != combinedEvents.end(); ) {
+
+				const auto next = combinedEvents.upper_bound(current->first.position);
+				for (auto it = current; it != next; it++) {
+					const midi::Smf::Event& event = it->first;
+					midi::MidiModuleBase<T>& midiModule = it->second;
+					midiModule.setMidiEvent(*event.event);
+				}
+
+				if (next != combinedEvents.end()) {
+					const auto nextTime = m_tempoList.getTime(next->first.position);
+					const auto needSize = renderedSize.next(nextTime);
+					render(needSize);
+				}
+
+				current = next;
+			}
+
+			const auto step = sampleRate / 5;	// 余韻を0.2秒ずつレンダリング
+			for (size_t c = 0; c < sampleRate * 5; c += step) {	// 余韻は最長で5秒としておく
+				render(step);
+				if ([&] {	// 終了?
+					for (auto& it : midiModuleMap) {
+						if (!it.second.get().isSilence()) return false;
+					}
+					return true;
+				}()) break;
+			}
 
 		}
 
-		template <typename T = double> Wav toWav(const std::map<std::string, std::reference_wrapper<midi::MidiModuleBase<T>>>& mapMidiModule, uint32_t sampleRate = 44100) const {
+		template <typename T = double> Wav toWav(const std::map<std::string, std::reference_wrapper<midi::MidiModuleBase<T>>>& midiModuleMap) const {
+			if (midiModuleMap.empty()) throw std::runtime_error("MidiModules is empty.");
+			const auto sampleRate = midiModuleMap.begin()->second.get().getSampleRate();	// sampleRate は最初のものを採用。異なるものチェックは要検討
+
 			Wav wav;
-			wav.setMode(Wav::Mode::Stereo16bit);
+			wav.setMode<Wav::Stereo<T>>();
 			wav.m_format.nSamplesPerSec = sampleRate;
 
-			auto& wavData = wav.data<Wav::Stereo16>();
+			auto& wavData = wav.data<Wav::Stereo<float>>();
 
 			{// 必要バッファ確保
 				const auto timeLength = m_tempoList.getTime([&]{
@@ -89,191 +182,87 @@ namespace rlib {
 				wavData.reserve(static_cast<size_t>((timeLength + 20) * sampleRate));	// 必要バッファ確保
 			}
 
-			if (mapMidiModule.empty()) {
-				throw std::runtime_error("MidiModules is empty.");
-			}
-
-			//const auto mapMidiModule = [&] {
-			//	std::map<std::string, std::unique_ptr<soundfont::MidiModuleT<T>>> mapMidiModule;
-			//	for (auto& i : mapSoundfont) {
-			//		mapMidiModule.emplace(i.first, std::make_unique<soundfont::MidiModuleT<T>>(i.second, sampleRate));
-			//	}
-			//	return mapMidiModule;
-			//}();
-
-			const auto combinedEvents = [&] {
-				std::multimap<midi::Smf::Event, std::reference_wrapper<midi::MidiModuleBase<T>>, midi::Smf::Event::Less> combinedEvents;
-				for (auto& i : m_mapEvents) {
-					auto it = mapMidiModule.find(i.first);
-					midi::MidiModuleBase<T>& midiModule = it != mapMidiModule.end() ? it->second : mapMidiModule.begin()->second;
-					for (auto& j : i.second) {
-						combinedEvents.emplace(j, midiModule);
-					}
-				}
-				return combinedEvents;
-			}();
-
-			if (combinedEvents.empty()) {
-				return wav;
-			}
-
-			const auto pushSamples = [&](const auto& samples) {
-				for (const auto& s : samples) {
-					const auto toInt = [](T n) {return std::clamp(static_cast<int32_t>(n * 32768), -32768, 32767); };
-					wavData.emplace_back(toInt(s.l), toInt(s.r));
-				}
-			};
-			const auto pushEmpty = [&](size_t size) {
-				wavData.resize(wavData.size() + size);
-			};
-
-			struct {
-				const uint32_t m_sampleRate;
-				std::uintmax_t m_current = 0;
-				size_t next(double time) {
-					const auto next = static_cast<std::uintmax_t>(time * m_sampleRate);
-					const std::intmax_t needSize = next - m_current;
-					if (needSize < 0) {
-						throw std::runtime_error("readSamplesUntilTime failed time.");		// failsafe 
-					}
-					m_current += needSize;
-					return needSize;
-				}
-			}renderedSize{ sampleRate };
-
-			{// 先頭のイベントまでの無音
-				auto current = combinedEvents.cbegin();
-				const auto nextTime = m_tempoList.getTime(current->first.position);
-				const auto needSize = renderedSize.next(nextTime);
-				pushEmpty(needSize);
-			}
-
-			auto render = [&](size_t size) {
-				std::vector<typename midi::StereoSample<T>> samples;
-				for (auto& it : mapMidiModule) {
-					auto readed = static_cast<midi::MidiModuleBase<T>&>(it.second).readSamples(size);
-					if (samples.empty()) {
-						samples = std::move(readed);
-					} else {
-						samples.resize((std::max)(samples.size(), readed.size()));
-						for (size_t i = 0; i < readed.size(); i++) {
-							samples[i].l += readed[i].l;
-							samples[i].r += readed[i].r;
-						}
-					}
-				}
-				pushSamples(samples);
-				if (auto lack = size - samples.size(); lack > 0) pushEmpty(lack);
-			};
-
-			for (auto current = combinedEvents.cbegin(); current != combinedEvents.end(); ) {
-				
-				const auto next = combinedEvents.upper_bound(current->first.position);
-				for (auto it = current; it != next; it++) {
-					const midi::Smf::Event &event = it->first;
-					midi::MidiModuleBase<T>& midiModule = it->second;
-					midiModule.setMidiEvent(*event.event);
-				}
-
-				if (next != combinedEvents.end()) {
-					const auto nextTime = m_tempoList.getTime(next->first.position);
-					const auto needSize = renderedSize.next(nextTime);
-					render(needSize);
-				}
-
-				current = next;
-			}
-
-			for (size_t c = 0; c < 10; c++) {	// 余韻は最長で10秒としておく
-
-				if ([&] {	// 終了?
-					for (auto& it : mapMidiModule) {
-						if (!static_cast<midi::MidiModuleBase<T>&>(it.second).isSilence()) return false;
-					}
-					return true;
-				}()) break;
-
-				render(wav.m_format.nSamplesPerSec);
-			}
-
-			pushEmpty(sampleRate / 2);			// 最後に0.5秒
+			toPcm(midiModuleMap, [&](auto& samples) {
+				wavData.insert(wavData.end(), std::make_move_iterator(samples.begin()), std::make_move_iterator(samples.end()));
+			});
 
 			return wav;
 		}
 
 #ifndef __EMSCRIPTEN__
-		// フォルダを指定することでwav生成まで行うユーティリティ
-		template <typename T = double> Wav toWavUsingPath(const std::filesystem::path& defaultSoundfont, const std::filesystem::path& soundfontDir, uint32_t sampleRate = 44100) const {
-			const std::map<std::string, std::shared_ptr<midi::MidiModuleBase<T>>> mapMidiModule = [&] {
-				using Soundfont = soundfont::Soundfont;
-				std::map<std::string, std::shared_ptr<midi::MidiModuleBase<T>>> mapMidiModule;
-				std::shared_ptr<const Soundfont> spDefaultSoundfont;	// デフォルトSoundfont
+		// フォルダを指定することで必要なmapMidiModuleを生成
+		template <typename T = double> auto makeMidiModules(const std::filesystem::path& defaultSoundfont, const std::filesystem::path& soundfontDir, uint32_t sampleRate = 44100) const {
+			struct {
+				std::map<std::string, std::shared_ptr<midi::MidiModuleBase<T>>> instances;
+				std::map<std::string, std::reference_wrapper<midi::MidiModuleBase<T>>> refMap;
+			}result;
+			auto& moduleMap = result.instances;
 
-				const auto loadSoundfont = [&](const std::filesystem::path& fullpath)->std::shared_ptr<midi::MidiModuleBase<T>> {
-					try {
-						const bool bDefault = std::filesystem::canonical(defaultSoundfont) == std::filesystem::canonical(fullpath);	// デフォルトSoundfont？
-						auto spSoundfont = bDefault && spDefaultSoundfont ? spDefaultSoundfont : nullptr;
-						if (!spSoundfont) {
-							std::fstream fs(fullpath, std::ios::in | std::ios::binary);
-							if (fs.fail()) {
-								std::clog << "not found " << fullpath << std::endl;
-								return nullptr;
-							}
-							spSoundfont = std::make_shared<const Soundfont>(Soundfont::fromStream(fs));
+			std::shared_ptr<const soundfont::Soundfont> spDefaultSoundfont;	// デフォルトSoundfont
+
+			const auto loadSoundfont = [&](const std::filesystem::path& fullpath)->std::shared_ptr<midi::MidiModuleBase<T>> {
+				try {
+					const bool bDefault = std::filesystem::canonical(defaultSoundfont) == std::filesystem::canonical(fullpath);	// デフォルトSoundfont？
+					auto spSoundfont = bDefault && spDefaultSoundfont ? spDefaultSoundfont : nullptr;
+					if (!spSoundfont) {
+						std::fstream fs(fullpath, std::ios::in | std::ios::binary);
+						if (fs.fail()) {
+							std::clog << "not found " << fullpath << std::endl;
+							return nullptr;
 						}
-						if (bDefault) spDefaultSoundfont = spSoundfont;		// デフォルトSoundfontの読み込みだったならキープ
-						return std::make_shared<soundfont::MidiModuleT<T>>(spSoundfont, sampleRate);
-					} catch (std::exception& e) {
-						std::clog << "soundfont parse exception " << fullpath << " " << e.what() << std::endl;
-					} catch (...) {
-						std::clog << "soundfont parse unknown exception " << fullpath << std::endl;
+						spSoundfont = std::make_shared<const soundfont::Soundfont>(soundfont::Soundfont::fromStream(fs));
 					}
-					return nullptr;
-				};
+					if (bDefault) spDefaultSoundfont = spSoundfont;		// デフォルトSoundfontの読み込みだったならキープ
+					return std::make_shared<soundfont::MidiModuleT<T>>(spSoundfont, sampleRate);
+				} catch (std::exception& e) {
+					std::clog << "soundfont parse exception " << fullpath << " " << e.what() << std::endl;
+				} catch (...) {
+					std::clog << "soundfont parse unknown exception " << fullpath << std::endl;
+				}
+				return nullptr;
+			};
 
-				for (auto& i : m_mapEvents) {
-					const std::string& instrument = i.first;
-					if (auto it = mapMidiModule.find(instrument); it != mapMidiModule.end()) continue;	// 読み込み済なら次へ
+			for (auto& i : m_mapEvents) {
+				const std::string& instrument = i.first;
+				if (auto it = moduleMap.find(instrument); it != moduleMap.end()) continue;	// 読み込み済なら次へ
 
-					try {
-						if (!instrument.empty()) {
+				try {
+					if (!instrument.empty()) {
 
-							if (instrument == "fm") {									// FM音源なら
-								mapMidiModule[instrument] = std::make_shared<fm::MidiModuleT<T>>(sampleRate);
+						if (instrument == "fm") {									// FM音源なら
+							moduleMap[instrument] = std::make_shared<fm::MidiModuleT<T>>(sampleRate);
+							continue;
+						}
+
+						if (!soundfontDir.empty()) {
+							if (auto sp = loadSoundfont(soundfontDir / instrument)) {	// SoundFont の読み込みを試みる
+								moduleMap.emplace(instrument, sp);
 								continue;
 							}
-
-							if (!soundfontDir.empty()) {
-								if (auto sp = loadSoundfont(soundfontDir / instrument)) {	// SoundFont の読み込みを試みる
-									mapMidiModule.emplace(instrument, sp);
-									continue;
-								}
-							}
-
 						}
-					} catch (std::exception& e) {
-						std::clog << "failed instrument:" << instrument << " " << e.what() << std::endl;
-					} catch (...) {
-						std::clog << "failed instrument:" << instrument << std::endl;
-					}
 
-					// default soundfont を使用する
-					if (auto it = mapMidiModule.find(""); it == mapMidiModule.end()) {
-						auto sp = loadSoundfont(defaultSoundfont);
-						mapMidiModule.emplace("", sp);
 					}
+				} catch (std::exception& e) {
+					std::clog << "failed instrument:" << instrument << " " << e.what() << std::endl;
+				} catch (...) {
+					std::clog << "failed instrument:" << instrument << std::endl;
 				}
 
-				return mapMidiModule;
-			}();
+				// default soundfont を使用する
+				if (auto it = moduleMap.find(""); it == moduleMap.end()) {
+					auto sp = loadSoundfont(defaultSoundfont);
+					moduleMap.emplace("", sp);
+				}
+			}
 
-			const auto mapRef = [&]{
-				std::map<std::string, std::reference_wrapper<midi::MidiModuleBase<T>>> m;
-				for (auto& i : mapMidiModule) m.emplace(i.first, *i.second);
-				return m;
-			}();
+			for (auto& i : result.instances) result.refMap.emplace(i.first, *i.second);	// refMapを構築
+			return result;
+		}
 
-			return toWav<T>(mapRef, sampleRate);
+		// フォルダを指定することでwav生成まで行うユーティリティ
+		template <typename T = double> Wav toWavUsingPath(const std::filesystem::path& defaultSoundfont, const std::filesystem::path& soundfontDir, uint32_t sampleRate = 44100) const {
+			const auto midiModules = makeMidiModules<T>(defaultSoundfont, soundfontDir, sampleRate);
+			return toWav<T>(midiModules.refMap);
 		}
 
 		// soundfont(フォルダを指定)及びFMの音色データをJSONで出力するユーティリティ
