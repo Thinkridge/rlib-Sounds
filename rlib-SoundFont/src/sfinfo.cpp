@@ -65,7 +65,7 @@ int main(const int argc, const char* const argv[])
 		po::notify(vm);
 
 
-		auto sfDir = std::filesystem::u8path(pathSoundfontDir);
+		auto sfDir = std::filesystem::path(pathSoundfontDir);
 
 		const std::filesystem::path& directory = sfDir;
 		const std::string pattern("*.sf2");

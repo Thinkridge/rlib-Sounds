@@ -89,7 +89,7 @@ emscripten::val smfToWav(Soundfont* soundFont, const std::string& smfBinary) {
 			rlib::soundfont::MidiModuleT<float> midiModule(*soundFont, 44100);
 			std::map<std::string, std::reference_wrapper<rlib::midi::MidiModuleBase<float>>> mapMidiModule;
 			mapMidiModule.emplace("", midiModule);
-			const rlib::Wav wav = smfToWav.toWav<float>(mapMidiModule, 44100);
+			const rlib::Wav wav = smfToWav.toWav<float>(mapMidiModule);
 			wav.exportFile(oss);
 		}
 		const auto s = oss.str();

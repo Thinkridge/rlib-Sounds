@@ -11,7 +11,7 @@ endif()
 
 project ("rlibsoundfontdecoder")
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 
 # スレッド不使用
 add_definitions(-DDISABLE_THREADS)

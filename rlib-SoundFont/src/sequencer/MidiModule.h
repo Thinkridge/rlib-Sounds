@@ -19,6 +19,8 @@ namespace rlib::midi {
 	public:
 		virtual ~MidiModuleBase() {};
 
+		virtual uint32_t getSampleRate()const = 0;
+
 		virtual void setMidiEvent(const midi::Event& ev) = 0;
 
 		// レンダリング(波形データ出力（結果配列がsize未満なら完了=無音）
