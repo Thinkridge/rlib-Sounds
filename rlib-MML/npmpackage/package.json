@@ -1,6 +1,6 @@
 {
   "name": "@thinkridge/rlib-mml",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "publishConfig": {
     "access": "public"
   },
@@ -27,8 +27,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build:wasm": "node scripts/build-wasm.js",
-    "build": "npm run build:wasm && tsup src/index.ts --dts --format cjs,esm",
-    "postinstall": "npm run build"
+    "build": "npm run build:wasm && tsup src/index.ts --dts --format cjs,esm"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -2,6 +2,21 @@
 
 SoundFont (.sf2) decoder for Web / Node.js using WebAssembly.
 
+## Features
+
+- Works in both Node.js and modern browsers
+- Decode SoundFont (.sf2) files
+- Convert SMF (MIDI) → WAV audio
+- Powered by WebAssembly (fast and portable)
+- No external runtime dependencies
+
+## Demo
+
+- https://rlib-mml.thinkridge.jp/
+
+  An interactive demo that lets you create, compile, and play MML entirely in the browser.  
+  Supports SoundFont-based playback. No installation required.
+
 ## Repository
 
 - **Monorepo root**  

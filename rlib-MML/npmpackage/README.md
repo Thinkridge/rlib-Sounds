@@ -2,6 +2,19 @@
 
 Music Macro Language (MML) compiler and decompiler for Web and Node.js, powered by WebAssembly.
 
+## Features
+- Works in both Node.js and modern browsers
+- Powered by WebAssembly (fast and portable)
+- Convert MML ⇄ SMF (Standard MIDI File)
+- No external runtime dependencies
+
+## Demo
+
+- https://rlib-mml.thinkridge.jp/
+
+  An interactive demo that lets you create, compile, and play MML entirely in the browser.  
+  Supports SoundFont-based playback. No installation required.
+
 ## Repository
 
 - **Monorepo root**  
