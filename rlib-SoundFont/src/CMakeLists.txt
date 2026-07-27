@@ -22,9 +22,9 @@ project ("smftowav")
 add_executable (smftowav
 	"./smftowav.cpp"
 	"./sequencer/Smf.cpp"
-	"./fm/fm2203r.cpp"
-	"./fm/ymfm_adpcm.cpp"
-	"./fm/ymfm_ssg.cpp"
+	"./ymfm/ymfm_opn.cpp"
+	"./ymfm/ymfm_adpcm.cpp"
+	"./ymfm/ymfm_ssg.cpp"
 )
 
 # ライブラリ

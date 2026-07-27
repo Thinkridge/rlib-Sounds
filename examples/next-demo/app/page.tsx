@@ -5,7 +5,7 @@ import { RlibSoundfont } from "@thinkridge/rlib-soundfont";
 import { AudioPlayer } from "./models/AudioPlayer";
 
 export default function Home() {
-  const [mml, setMml] = React.useState("cdefgab<c");
+  const [mml, setMml] = React.useState(`CreatePort(name:soundfont, channel:1) v127 V(127)\n@0 o3 cdefgab<c\n\nCreatePort(name:fm, channel:1, instrument:fm) v127 V(127)\n@0 o3 rrrrrrr cdefgab<c\n\nCreatePort(name:psg, channel:1, instrument:psg) v127 V(127)\n@0 o3 rrrrrrr rrrrrrr cdefgab<c\n`);
   const [soundfont, setSoundfont] = React.useState<{ instance: RlibSoundfont; filename: string }>();
   const refAudioPlayer = React.useRef<AudioPlayer>(null);
   const [playState, setPlayState] = React.useState("");

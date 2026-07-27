@@ -1,5 +1,16 @@
-#pragma once
+ï»¿#pragma once
 
+#include <array>
+#include <cassert>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <istream>
+#include <limits>
+#include <ostream>
+#include <stdexcept>
+#include <variant>
+#include <vector>
 
 namespace rlib {
 
@@ -29,8 +40,8 @@ namespace rlib {
 
 		inline void readRiff(
 			std::istream& is,
-			std::function<void(const ChunkList&)> fListBegin = [](const ChunkList&) {},			// LIST “üŒû
-			std::function<void()> fListEnd = [] {},												// LIST oŒû
+			std::function<void(const ChunkList&)> fListBegin = [](const ChunkList&) {},			// LIST å…¥å£
+			std::function<void()> fListEnd = [] {},												// LIST å‡ºå£
 			std::function<void(const ChunkHead&, std::istream&)> fReadData = [](const ChunkHead& ch, std::istream& is) {
 				is.seekg(ch.size, std::ios::cur);
 				if (is.fail()) {
@@ -71,10 +82,10 @@ namespace rlib {
 						if (ch.id == inner::toArray<4>("LIST")) {
 							readed += f(f, ch);
 						} else {
-							fReadData(ch, is);			// ƒf[ƒ^“Ç‚İ‚İ
+							fReadData(ch, is);			// ãƒ‡ãƒ¼ã‚¿èª­ã¿è¾¼ã¿
 							readed += ch.size;
 
-							if (is.tellg() % 2) {		// Šï”‚È‚ç‹ô”ˆÊ’u‚É
+							if (is.tellg() % 2) {		// å¥‡æ•°ãªã‚‰å¶æ•°ä½ç½®ã«
 								is.seekg(1, std::ios::cur);
 								readed++;
 							}
@@ -107,7 +118,7 @@ namespace rlib {
 				std::array<std::byte, 4>	id;
 				std::vector<std::byte>		data;
 			};
-			struct DataRef {		// À‘Ì‚ğ©‘O‚Å‚Í‚½‚È‚¢
+			struct DataRef {		// å®Ÿä½“ã‚’è‡ªå‰ã§ã¯æŒãŸãªã„
 				struct Info {
 					std::array<std::byte, 4>	id;
 					const void* data;
@@ -159,7 +170,7 @@ namespace rlib {
 				return *this;
 			}
 
-			// List æ“¾
+			// List å–å¾—
 			bool isChunks()const {
 				return std::holds_alternative<Chunks>(m_value);
 			}
@@ -176,7 +187,7 @@ namespace rlib {
 				return std::get<Chunks>(m_value);
 			}
 
-			// Data æ“¾
+			// Data å–å¾—
 			bool isData()const {
 				return std::holds_alternative<Data>(m_value);
 			}
@@ -260,11 +271,11 @@ namespace rlib {
 						}
 						if (chunk.isData()) {
 							auto& data = std::get<Data>(chunk.m_value);
-							return data.data.size() + (data.data.size() % 2);	// Šï”ƒoƒCƒgl—¶
+							return data.data.size() + (data.data.size() % 2);	// å¥‡æ•°ãƒã‚¤ãƒˆè€ƒæ…®
 						}
 						if (chunk.isDataRef()) {
 							auto info = std::get<DataRef>(chunk.m_value).funcGet();
-							return info.size + (info.size % 2);				// Šï”ƒoƒCƒgl—¶
+							return info.size + (info.size % 2);				// å¥‡æ•°ãƒã‚¤ãƒˆè€ƒæ…®
 						}
 						assert(false);
 						throw std::logic_error("type error");
@@ -285,19 +296,19 @@ namespace rlib {
 							auto& data = std::get<Data>(chunk.m_value);
 							ChunkHead h;
 							h.id = data.id;
-							h.size = static_cast<decltype(h.size)>(data.data.size());	// ƒRƒR‚ÍŠï”ƒoƒCƒgl—¶‚µ‚È‚¢
+							h.size = static_cast<decltype(h.size)>(data.data.size());	// ã‚³ã‚³ã¯å¥‡æ•°ãƒã‚¤ãƒˆè€ƒæ…®ã—ãªã„
 							os.write(reinterpret_cast<const char*>(&h), sizeof(h));
 							os.write(reinterpret_cast<const char*>(data.data.data()), data.data.size());
-							if (data.data.size() % 2) os << '\0';		// Šï”ƒoƒCƒg‚È‚ç
+							if (data.data.size() % 2) os << '\0';		// å¥‡æ•°ãƒã‚¤ãƒˆãªã‚‰
 						} else if (chunk.isDataRef()) {
 							auto& dataRef = std::get<DataRef>(chunk.m_value);
 							auto info = dataRef.funcGet();
 							ChunkHead h;
 							h.id = info.id;
-							h.size = static_cast<decltype(h.size)>(info.size);			// ƒRƒR‚ÍŠï”ƒoƒCƒgl—¶‚µ‚È‚¢
+							h.size = static_cast<decltype(h.size)>(info.size);			// ã‚³ã‚³ã¯å¥‡æ•°ãƒã‚¤ãƒˆè€ƒæ…®ã—ãªã„
 							os.write(reinterpret_cast<const char*>(&h), sizeof(h));
 							os.write(static_cast<const char*>(info.data), info.size);
-							if (info.size % 2) os << '\0';		// Šï”ƒoƒCƒg‚È‚ç
+							if (info.size % 2) os << '\0';		// å¥‡æ•°ãƒã‚¤ãƒˆãªã‚‰
 							return;
 						} else {
 							assert(false);

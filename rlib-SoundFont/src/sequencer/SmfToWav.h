@@ -9,7 +9,8 @@
 // toWavUsingPath 用
 #include "SoundfontMidiModule.h"
 #include "./SoundfontInfo.h"
-// #include "../fm/FmMidiModule.h"
+#include "./FmMidiModule.h"
+#include "./PsgMidiModule.h"
 
 namespace rlib {
 
@@ -41,23 +42,22 @@ namespace rlib {
 					return pEvents;
 				};
 				
-				for (auto& event : track.events) {
-
-					if (auto meta = std::dynamic_pointer_cast<const midi::EventMeta>(event.event)) {
+				for (auto& [position, event] : track.events) {
+					if (auto meta = std::dynamic_pointer_cast<const midi::EventMeta>(event)) {
 						switch (meta->type) {
 						case  midi::EventMeta::Type::instrumentName:
 							instrumentName = meta->getText();
 							pEvents = nullptr;
 							break;
 						case midi::EventMeta::Type::tempo:
-							tempoList.insert(event.position * mul, static_cast<typename decltype(tempoList)::Type>(meta->getTempo()));
+							tempoList.insert(position * mul, static_cast<typename decltype(tempoList)::Type>(meta->getTempo()));
 							break;
 						default:
-							getEvents()->emplace(event.position * mul, event.event);
+							getEvents()->emplace(position * mul, event);
 							break;
 						}
 					} else {
-						getEvents()->emplace(event.position * mul, event.event);
+						getEvents()->emplace(position * mul, event);
 					}
 				}
 			}
@@ -70,11 +70,17 @@ namespace rlib {
 			const auto sampleRate = midiModuleMap.begin()->second.get().getSampleRate();	// sampleRate は最初のものを採用。異なるものチェックは要検討
 
 			const auto combinedEvents = [&] {
-				std::multimap<midi::Smf::Event, std::reference_wrapper<midi::MidiModuleBase<T>>, midi::Smf::Event::Less> combinedEvents;
-				for (auto& i : m_mapEvents) {
-					auto it = midiModuleMap.find(i.first);
+				struct Info {
+					std::shared_ptr<const midi::Event>	event;
+					std::reference_wrapper<midi::MidiModuleBase<T>>	refMidiModule;
+				};
+				std::multimap<size_t, Info> combinedEvents;	// <position,Info>
+				for (auto& [instrument, events] : m_mapEvents) {
+					auto it = midiModuleMap.find(instrument);
 					midi::MidiModuleBase<T>& midiModule = it != midiModuleMap.end() ? it->second : midiModuleMap.begin()->second;
-					for (auto& j : i.second) combinedEvents.emplace(j, midiModule);
+					for (auto& [position, event] : events) {
+						combinedEvents.emplace(position, Info{ event, midiModule });
+					}
 				}
 				return combinedEvents;
 			}();
@@ -94,7 +100,7 @@ namespace rlib {
 
 			{// 先頭のイベントまでの無音
 				auto current = combinedEvents.cbegin();
-				const auto nextTime = m_tempoList.getTime(current->first.position);
+				const auto nextTime = m_tempoList.getTime(current->first);
 				const auto needSize = renderedSize.next(nextTime);
 				std::vector<midi::StereoSample<T>> samples(needSize);
 				callback(samples);
@@ -107,7 +113,7 @@ namespace rlib {
 					if (samples.empty()) {
 						samples = std::move(readed);
 					} else {
-						samples.resize((std::max)(samples.size(), readed.size()));
+						samples.resize(std::max(samples.size(), readed.size()));
 						for (size_t i = 0; i < readed.size(); i++) {
 							samples[i].l += readed[i].l;
 							samples[i].r += readed[i].r;
@@ -127,15 +133,14 @@ namespace rlib {
 
 			for (auto current = combinedEvents.cbegin(); current != combinedEvents.end(); ) {
 
-				const auto next = combinedEvents.upper_bound(current->first.position);
+				const auto next = combinedEvents.upper_bound(current->first);
 				for (auto it = current; it != next; it++) {
-					const midi::Smf::Event& event = it->first;
-					midi::MidiModuleBase<T>& midiModule = it->second;
-					midiModule.setMidiEvent(*event.event);
+					midi::MidiModuleBase<T>& midiModule = it->second.refMidiModule;
+					midiModule.setMidiEvent(*it->second.event);
 				}
 
 				if (next != combinedEvents.end()) {
-					const auto nextTime = m_tempoList.getTime(next->first.position);
+					const auto nextTime = m_tempoList.getTime(next->first);
 					const auto needSize = renderedSize.next(nextTime);
 					render(needSize);
 				}
@@ -171,7 +176,7 @@ namespace rlib {
 					uint64_t max = 0;
 					for (auto& i : m_mapEvents) {
 						if (!i.second.empty()) {
-							max = (std::max)(max, i.second.rbegin()->position);
+							max = std::max(max, static_cast<decltype(max)>(i.second.rbegin()->first));
 						}
 					}
 					return max;
@@ -231,6 +236,11 @@ namespace rlib {
 
 						if (instrument == "fm") {									// FM音源なら
 							moduleMap[instrument] = std::make_shared<fm::MidiModuleT<T>>(sampleRate);
+							continue;
+						}
+
+						if (instrument == "psg") {									// PSG(SSG)音源なら
+							moduleMap[instrument] = std::make_shared<fm::psg::MidiModuleT<T>>(sampleRate);
 							continue;
 						}
 
@@ -305,6 +315,9 @@ namespace rlib {
 
 			// fm
 			json["fm"] = fm::MidiModuleT<float>(44100).getPresetInfo();
+
+			// psg
+			json["psg"] = fm::psg::MidiModuleT<float>(44100).getPresetInfo();
 
 			return json;
 		}

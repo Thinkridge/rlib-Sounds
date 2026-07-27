@@ -16,6 +16,8 @@
 #include "../sequencer/SoundfontInfo.h"
 #include "../sequencer/Smf.h"
 #include "../sequencer/SmfToWav.h"
+#include "../sequencer/FmMidiModule.h"
+#include "../sequencer/PsgMidiModule.h"
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
@@ -83,12 +85,33 @@ emscripten::val smfToWav(Soundfont* soundFont, const std::string& smfBinary) {
 	try{
 		std::ostringstream oss;
 		{
+			constexpr uint32_t sampleRate = 44100;
 			auto is = std::istringstream(smfBinary, std::istringstream::binary);
 			auto smf = rlib::midi::Smf::fromStream(is);
 			const auto smfToWav = rlib::SmfToWav::create(smf);
-			rlib::soundfont::MidiModuleT<float> midiModule(*soundFont, 44100);
+
+			// トラック(CreatePortのinstrument)ごとにMidiModuleを用意する
+			// instrument が "fm"/"psg" ならymfmベースのFM/PSG音源、それ以外(既定含む)は読み込み済みのSoundFontで再生する
+			std::vector<std::shared_ptr<rlib::midi::MidiModuleBase<float>>> instances;
 			std::map<std::string, std::reference_wrapper<rlib::midi::MidiModuleBase<float>>> mapMidiModule;
-			mapMidiModule.emplace("", midiModule);
+			const auto ensureModule = [&](const std::string& instrument) -> rlib::midi::MidiModuleBase<float>& {
+				if (instrument == "fm") {
+					instances.push_back(std::make_shared<rlib::fm::MidiModuleT<float>>(sampleRate));
+				} else if (instrument == "psg") {
+					instances.push_back(std::make_shared<rlib::fm::psg::MidiModuleT<float>>(sampleRate));
+				} else {
+					instances.push_back(std::make_shared<rlib::soundfont::MidiModuleT<float>>(*soundFont, sampleRate));
+				}
+				return *instances.back();
+			};
+			if (smfToWav.m_mapEvents.empty()) {
+				mapMidiModule.emplace("", ensureModule(""));
+			} else {
+				for (auto& [instrument, events] : smfToWav.m_mapEvents) {
+					mapMidiModule.emplace(instrument, ensureModule(instrument));
+				}
+			}
+
 			const rlib::Wav wav = smfToWav.toWav<float>(mapMidiModule);
 			wav.exportFile(oss);
 		}
