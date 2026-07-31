@@ -15,7 +15,8 @@
 #include "./sequencer/SmfToWav.h"
 #include "./sequencer/SoundfontMidiModule.h"
 #include "./sequencer/SoundfontInfo.h"
-// #include "./fm/FmMidiModule.h"
+#include "./sequencer/FmMidiModule.h"
+#include "./sequencer/PsgMidiModule.h"
 
 using namespace rlib;
 
@@ -102,12 +103,14 @@ int main(const int argc, const char* const argv[])
 				json[entry.path().filename().string()] = soundfont::getSoundfontInfo(sf);
 			});
 
-			// {// fm
-			// 	json["fm"] = fm::MidiModuleT<float>(44100).getPresetInfo();
-			// }
+			{// fm
+				json["fm"] = fm::MidiModuleT<float>(44100).getPresetInfo();
+			}
+			{// psg
+				json["psg"] = fm::psg::MidiModuleT<float>(44100).getPresetInfo();
+			}
 
 			std::cout << json.stringify(Json::Stringify::standard) << std::endl;
-
 
 			return 0;
 		}

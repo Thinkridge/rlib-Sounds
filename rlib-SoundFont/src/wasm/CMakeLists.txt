@@ -20,7 +20,12 @@ add_definitions(-DDISABLE_THREADS)
 add_executable ( ${CMAKE_PROJECT_NAME}
 	"./main.cpp"
 	"../json/Json.h"
+	"../sequencer/FmMidiModule.h"
+	"../sequencer/FmRenderer.h"
 	"../sequencer/MidiEvent.h"
+	"../sequencer/MidiModule.h"
+	"../sequencer/PsgMidiModule.h"
+	"../sequencer/PsgRenderer.h"
 	"../sequencer/Smf.cpp"
 	"../sequencer/Smf.h"
 	"../sequencer/SmfToWav.h"
@@ -29,6 +34,9 @@ add_executable ( ${CMAKE_PROJECT_NAME}
 	"../sequencer/SoundfontMidiModule.h"
 	"../sequencer/SoundfontRenderer.h"
 	"../sequencer/TempoList.h"
+	"../ymfm/ymfm_adpcm.cpp"
+	"../ymfm/ymfm_opn.cpp"
+	"../ymfm/ymfm_ssg.cpp"
 )
 
 set(CMAKE_EXECUTABLE_SUFFIX ".js")

@@ -1,46 +1,36 @@
-#pragma once
+ï»¿#pragma once
 
 #include "Soundfont.h"
 #include "MidiModule.h"
 
-
 namespace rlib::soundfont {
-
+	
 	template <typename T = double> class RendererT {
 	public:
 		class Note;
 	private:
 
-		// 1ƒTƒ“ƒvƒ‹‚ ‚½‚èi‚Ş’l‚ğZo
+		// 1ã‚µãƒ³ãƒ—ãƒ«ã‚ãŸã‚Šé€²ã‚€å€¤ã‚’ç®—å‡º
 		static double getAdvance(double advanceBase, double pitch, uint32_t sampleRate, uint32_t targetSampleRate) {
-			const auto n = advanceBase + pitch;								// pitchl—¶
+			const auto n = advanceBase + pitch;								// pitchè€ƒæ…®
 			constexpr double recip12 = 1.0 / 12.0;
-			const double mul = std::exp2(n * recip12);	// std::pow(2.0, n * recip12);	// 1ƒTƒ“ƒvƒ‹‚ ‚½‚èi‚Ş’l
-			const auto advance = mul * sampleRate / targetSampleRate;		// ”gŒ`ƒf[ƒ^‚ÌƒTƒ“ƒvƒ‹ƒŒ[ƒgl—¶
+			const double mul = std::exp2(n * recip12);	// std::pow(2.0, n * recip12);	// 1ã‚µãƒ³ãƒ—ãƒ«ã‚ãŸã‚Šé€²ã‚€å€¤
+			const auto advance = mul * sampleRate / targetSampleRate;		// æ³¢å½¢ãƒ‡ãƒ¼ã‚¿ã®ã‚µãƒ³ãƒ—ãƒ«ãƒ¬ãƒ¼ãƒˆè€ƒæ…®
 			return advance;
 		}
 
-		// –‘Oˆ—Ï‚Ì’†ŠÔî•ñ
+		// äº‹å‰å‡¦ç†æ¸ˆã®ä¸­é–“æƒ…å ±
 		struct InterInfo {
-			std::reference_wrapper<const std::vector<T>> sample;			// •‚“®¬”“_”‚É•ÏŠ·Œã‚Ì”gŒ`ƒf[ƒ^
+			std::reference_wrapper<const std::vector<T>> sample;			// æµ®å‹•å°æ•°ç‚¹æ•°ã«å¤‰æ›å¾Œã®æ³¢å½¢ãƒ‡ãƒ¼ã‚¿
+			midi::Envelope<T>	envelope;
 
 			uint16_t			rootKey;
 			enumSampleMode		sampleModes;
 			int16_t				coarseTune;
 			int16_t				scaleTuning;
 			int16_t				fineTune;
-			T					initialAttenuationAmplitude;		// initialAttenuation ‚ğU•’l(0`1.0)‚É‚µ‚½’l
-			std::pair<T, T>		pan;								// pan ‚Ì’l‚©‚ç L,R ‚Ì”{—¦‚Ì’l
-
-			size_t				delayVolEnv;			// ƒGƒ“ƒxƒ[ƒv‚ÌƒfƒBƒŒƒC(ƒAƒ^ƒbƒN‚ªn‚Ü‚é‚Ü‚Å‚ÌƒTƒ“ƒvƒ‹”)
-			size_t				attackVolEnv;			// ƒGƒ“ƒxƒ[ƒv‚ÌƒAƒ^ƒbƒNŠÔ(ƒTƒ“ƒvƒ‹”)
-			size_t				holdVolEnv;				// ƒGƒ“ƒxƒ[ƒv‚Ìƒz[ƒ‹ƒhŠÔ(ƒAƒ^ƒbƒN‚ªI‚í‚Á‚Ä‚©‚çƒfƒBƒPƒC‚ªn‚Ü‚é‚Ü‚Å‚ÌƒTƒ“ƒvƒ‹”j
-			size_t				decayVolEnv;			// ƒGƒ“ƒxƒ[ƒv‚ÌƒfƒBƒPƒCŠÔ(ƒTƒ“ƒvƒ‹”)
-			T					sustainVolEnv;			// ƒTƒXƒeƒCƒ“—Ê 0.0`1.0
-			size_t				releaseVolEnv;			// ƒGƒ“ƒxƒ[ƒv‚ÌƒŠƒŠ[ƒXŠÔ(ƒTƒ“ƒvƒ‹”)
-			T					divAttack;				// ŒvZ’l 1.0 / attackVolEnv
-			T					divSustainDecay;		// ŒvZ’l (1.0 - sustainVolEnv) / decayVolEnv
-			T					divRelease;				// ŒvZ’l 1.0 / releaseVolEnvv
+			T					initialAttenuationAmplitude;		// initialAttenuation ã‚’æŒ¯å¹…å€¤(0ï½1.0)ã«ã—ãŸå€¤
+			std::pair<T, T>		pan;								// pan ã®å€¤ã‹ã‚‰ L,R ã®å€ç‡ã®å€¤
 		};
 
 		const InterInfo& getInterInfo(const typename Soundfont::InstrumentRefer& refer) {
@@ -49,20 +39,31 @@ namespace rlib::soundfont {
 				return it->second;
 			}
 
-			// ’†ŠÔî•ñ¶¬
+			// ä¸­é–“æƒ…å ±ç”Ÿæˆ
 			const typename Soundfont::Preset& preset = refer.preset;
 			const typename Soundfont::InstrumentSample& instrumentSample = refer.instrumentSample;
 			const typename Soundfont::Instrument& instrument = refer.instrument;
 
 			auto& sample = m_interInfos.mapSample[&*instrumentSample.spSample];
-			if (sample.empty()) {	// •‚“®¬”“_”‚É•ÏŠ·Œã‚Ì”gŒ`ƒf[ƒ^
+			if (sample.empty()) {	// æµ®å‹•å°æ•°ç‚¹æ•°ã«å¤‰æ›å¾Œã®æ³¢å½¢ãƒ‡ãƒ¼ã‚¿
 				sample = std::move(instrumentSample.spSample->createSample<T>(*m_soundfont));
 			}
-			InterInfo i{ sample };
 
 			const auto getAmount = [&](GenOperator ope) {
 				return Soundfont::getGenAmount<T>(ope, *instrumentSample.genInstLocal, *instrument.genInstGlobal, *instrument.genPresetLocal, *preset.genPresetGlobal);
 			};
+
+			typename midi::Envelope<T>::Params params;
+			params.delayVolEnv = static_cast<size_t>(m_sampleRate * std::get<T>(getAmount(GenOperator::delayVolEnv)));		// ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—ã®ãƒ‡ã‚£ãƒ¬ã‚¤(ã‚¢ã‚¿ãƒƒã‚¯ãŒå§‹ã¾ã‚‹ã¾ã§ã®ã‚µãƒ³ãƒ—ãƒ«æ•°)
+			params.attackVolEnv = static_cast<size_t>(m_sampleRate * std::get<T>(getAmount(GenOperator::attackVolEnv)));	// ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—ã®ã‚¢ã‚¿ãƒƒã‚¯æ™‚é–“(ã‚µãƒ³ãƒ—ãƒ«æ•°)
+			params.holdVolEnv = static_cast<size_t>(m_sampleRate * std::get<T>(getAmount(GenOperator::holdVolEnv)));		// ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—ã®ãƒ›ãƒ¼ãƒ«ãƒ‰æ™‚é–“(ã‚¢ã‚¿ãƒƒã‚¯ãŒçµ‚ã‚ã£ã¦ã‹ã‚‰ãƒ‡ã‚£ã‚±ã‚¤ãŒå§‹ã¾ã‚‹ã¾ã§ã®ã‚µãƒ³ãƒ—ãƒ«æ•°ï¼‰
+			params.decayVolEnv = static_cast<size_t>(m_sampleRate * std::get<T>(getAmount(GenOperator::decayVolEnv)));		// ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—ã®ãƒ‡ã‚£ã‚±ã‚¤æ™‚é–“(ã‚µãƒ³ãƒ—ãƒ«æ•°)
+			params.sustainVolEnv = [&] {																					// ã‚µã‚¹ãƒ†ã‚¤ãƒ³é‡ 0.0ï½1.0
+				const auto sustainVolEnv = std::get<T>(getAmount(GenOperator::sustainVolEnv));
+				return math::decibelsToAmplitude(-sustainVolEnv);			// dBå€¤ã‹ã‚‰æŒ¯å¹…å€¤(0ï½1.0)ã¸
+			}();
+			params.releaseVolEnv = static_cast<size_t>(m_sampleRate * std::get<T>(getAmount(GenOperator::releaseVolEnv)));	// ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—ã®ãƒªãƒªãƒ¼ã‚¹æ™‚é–“(ã‚µãƒ³ãƒ—ãƒ«æ•°)
+			InterInfo i{ sample, midi::Envelope<T>(params) };
 
 			i.rootKey = [&] {
 				auto r = getAmount(GenOperator::overridingRootKey);
@@ -78,65 +79,41 @@ namespace rlib::soundfont {
 
 			i.initialAttenuationAmplitude = [&] {
 				const auto initialAttenuation = std::get<T>(getAmount(GenOperator::initialAttenuation));
-				return math::decibelsToAmplitude(-initialAttenuation);		// dB’l‚©‚çU•’l(0`1.0)‚Ö
+				return math::decibelsToAmplitude(-initialAttenuation);		// dBå€¤ã‹ã‚‰æŒ¯å¹…å€¤(0ï½1.0)ã¸
 			}();
 			i.pan = [&] {
-				const T n = std::get<T>(getAmount(GenOperator::pan));		// -50(L) ` 50(R)
+				const T n = std::get<T>(getAmount(GenOperator::pan));		// -50(L) ï½ 50(R)
 				constexpr std::pair<T, T> minmax{ static_cast<T>(-50.0),static_cast<T>(50.0) };
 				const T m = (std::min)(minmax.second, (std::max)(minmax.first, n));
-				const T normalized = (m - minmax.first) / (minmax.second - minmax.first);	// 0.0`1.0‚Ì”ÍˆÍ‚É•ÏŠ·
+				const T normalized = (m - minmax.first) / (minmax.second - minmax.first);	// 0.0ï½1.0ã®ç¯„å›²ã«å¤‰æ›
 				constexpr T pi2 = static_cast<T>(3.14159265358979323846 / 2.0);
-				const T l = std::sin((static_cast<T>(1.0) - normalized) * pi2);		// left 0.0`1.0
-				const T r = std::sin(normalized * pi2);								// right 0.0`1.0
+				const T l = std::sin((static_cast<T>(1.0) - normalized) * pi2);		// left 0.0ï½1.0
+				const T r = std::sin(normalized * pi2);								// right 0.0ï½1.0
 				return std::pair(l, r);
 			}();
-
-			auto delayVolEnv = std::get<T>(getAmount(GenOperator::delayVolEnv));
-			i.delayVolEnv = static_cast<size_t>(m_sampleRate * delayVolEnv);
-			auto attackVolEnv = std::get<T>(getAmount(GenOperator::attackVolEnv));
-			i.attackVolEnv = static_cast<size_t>(m_sampleRate * attackVolEnv);
-			auto holdVolEnv = std::get<T>(getAmount(GenOperator::holdVolEnv));
-			i.holdVolEnv = static_cast<size_t>(m_sampleRate * holdVolEnv);
-			auto decayVolEnv = std::get<T>(getAmount(GenOperator::decayVolEnv));
-			i.decayVolEnv = static_cast<size_t>(m_sampleRate * decayVolEnv);
-			i.sustainVolEnv = [&] {
-				const auto sustainVolEnv = std::get<T>(getAmount(GenOperator::sustainVolEnv));
-				return math::decibelsToAmplitude(-sustainVolEnv);			// dB’l‚©‚çU•’l(0`1.0)‚Ö
-			}();
-			auto releaseVolEnv = std::get<T>(getAmount(GenOperator::releaseVolEnv));
-			i.releaseVolEnv = std::max<size_t>(static_cast<size_t>(m_sampleRate * releaseVolEnv), 1);		// œZƒ`ƒFƒbƒN‚ğ’[Ü‚é‚½‚ß‚É1ˆÈã‚ğ’S•Û
-
-			i.divAttack = static_cast<T>(1.0) / i.attackVolEnv;
-			i.divSustainDecay = (static_cast<T>(1.0) - i.sustainVolEnv) / i.decayVolEnv;
-			i.divRelease = static_cast<T>(1.0) / i.releaseVolEnv;
 
 			const auto it = m_interInfos.mapInterInfo.emplace(refer, std::move(i));
 			return it.first->second;
 		}
 
-	public:
-
-		// volume—p U•’l(0.0`1.0)ƒe[ƒuƒ‹
-		static const std::array<T, 128> volumeGainTable;
-
 	private:
 
 		class Instrument {
-			double				m_currentPosition = 0.0;	// Œ»İˆÊ’u(ƒTƒ“ƒvƒ‹ƒf[ƒ^)
-			size_t				m_renderedSize = 0;			// ƒŒƒ“ƒ_ƒŠƒ“ƒOÏ‚Ìo—ÍƒTƒ“ƒvƒ‹”
+			double				m_currentPosition = 0.0;	// ç¾åœ¨ä½ç½®(ã‚µãƒ³ãƒ—ãƒ«ãƒ‡ãƒ¼ã‚¿)
+			size_t				m_renderedSize = 0;			// ãƒ¬ãƒ³ãƒ€ãƒªãƒ³ã‚°æ¸ˆã®å‡ºåŠ›ã‚µãƒ³ãƒ—ãƒ«æ•°
 
 			struct Keyoff {
-				size_t	position;		// ƒL[ƒIƒt‚³‚ê‚½ˆÊ’u
-				T		amplitude;		// ƒL[ƒIƒt‚³‚ê‚½‚Æ‚«‚Ì‰¹—Ê(0.0`1.0)
+				size_t	position;		// ã‚­ãƒ¼ã‚ªãƒ•ã•ã‚ŒãŸä½ç½®
+				T		amplitude;		// ã‚­ãƒ¼ã‚ªãƒ•ã•ã‚ŒãŸã¨ãã®éŸ³é‡(0.0ï½1.0)
 			};
-			std::optional<Keyoff>	m_keyoff;		// ƒL[ƒIƒt
+			std::optional<Keyoff>	m_keyoff;		// ã‚­ãƒ¼ã‚ªãƒ•
 
 		public:
 			const typename Soundfont::InstrumentRefer	m_instrumentRefer;
 			struct Inter {
 				std::reference_wrapper<const InterInfo>	interInfo;
-				double									advanceBase;	// 1ƒTƒ“ƒvƒ‹‚ ‚½‚è‚ÉAƒTƒ“ƒvƒ‹ƒf[ƒ^‚ğ“Ç‚İi‚ß‚é“y‘ä‚Ì’l
-				double									advanceNormal;	// 1ƒTƒ“ƒvƒ‹‚ ‚½‚è‚ÉAƒTƒ“ƒvƒ‹ƒf[ƒ^‚ğ“Ç‚İi‚ß‚é’l(pitch‚ª0‚Ìê‡)
+				double									advanceBase;	// 1ã‚µãƒ³ãƒ—ãƒ«ã‚ãŸã‚Šã«ã€ã‚µãƒ³ãƒ—ãƒ«ãƒ‡ãƒ¼ã‚¿ã‚’èª­ã¿é€²ã‚ã‚‹åœŸå°ã®å€¤
+				double									advanceNormal;	// 1ã‚µãƒ³ãƒ—ãƒ«ã‚ãŸã‚Šã«ã€ã‚µãƒ³ãƒ—ãƒ«ãƒ‡ãƒ¼ã‚¿ã‚’èª­ã¿é€²ã‚ã‚‹å€¤(pitchãŒ0ã®å ´åˆ)
 			};
 			std::optional<Inter> m_inter;
 
@@ -155,7 +132,7 @@ namespace rlib::soundfont {
 					const typename Soundfont::InstrumentSample& instrumentSample = m_instrumentRefer.instrumentSample;
 
 					// advanceBase advanceNormal
-					auto n = static_cast<double>(note.m_presetKey.note - (i.rootKey - i.coarseTune));	// ƒIƒŠƒWƒiƒ‹ƒL[‚Æ‚Ì·(”¼‰¹=1)
+					auto n = static_cast<double>(note.m_presetKey.note - (i.rootKey - i.coarseTune));	// ã‚ªãƒªã‚¸ãƒŠãƒ«ã‚­ãƒ¼ã¨ã®å·®(åŠéŸ³=1)
 					if (instrumentSample.spSample->pitchCorrection != 0) n += instrumentSample.spSample->pitchCorrection * 0.01;	// pitchCorrection/100
 					if (i.scaleTuning != 100) n *= i.scaleTuning * 0.01;	// scaleTuning/100
 					if (i.fineTune != 0) n += i.fineTune * 0.01;			// fineTune/100
@@ -167,128 +144,21 @@ namespace rlib::soundfont {
 				return *m_inter;
 			}
 
-			// ‰¹—Ê(0.0`1.0)æ“¾ size–¢–‚Ì”z—ñ‚È‚çI—¹‚ÌˆÓ–¡
-			auto getAmplitudes(const InterInfo &inter,size_t position, size_t size)const {
-				struct Result {
-					std::optional<T>	same;		// ‘S‘Ì‚Éˆê—¥‚ÉŠ|‚¯‚é’l(0.0`1.0) ReleaseRate ‚ÌƒP[ƒX
-					std::vector<T>		env;		// ƒGƒ“ƒxƒ[ƒv’l(0.0`1.0) ”z—ñ‚ªsize–¢–‚È‚çI—¹‚ÌˆÓ–¡
-				};
-
-				if (m_keyoff) {		// ReleaseRate ‚È‚ç
-					assert(position >= m_keyoff->position);
-					const size_t remain = m_keyoff->position + inter.releaseVolEnv - position;	// I—¹(–³‰¹)‚Ü‚Å‚Ìc‚èƒTƒ“ƒvƒ‹”
-
-					Result result = {
-						m_keyoff->amplitude,								// ‘S‘Ì‚Éˆê—¥‚ÉŠ|‚¯‚é’l
-						decltype(Result::env)((std::min)(size, remain)),	// ¡‰ño—Í‚·‚éƒTƒ“ƒvƒ‹”
-					};
-
-					const auto amp = inter.divRelease;	// static_cast<T>(1.0) / m_releaseVolEnv;		// 1ƒTƒ“ƒvƒ‹‚ ‚½‚è‚Ìamp’l
-					for (size_t i = 0; i < result.env.size(); i++) {
-						const auto linear = amp * (remain - i);	// ƒL[ƒIƒt‚©‚çI—¹(–³‰¹)‚Ü‚Å‚ÌˆÊ’u‚ğ 1.0`0.0 ‚Å•\‚µ‚½’l
-#if 0
-						// 0`1 ‚Ì“ü—Í’l‚ğ‹Èü‚Å•Ô‚· exponent:’²®’l 1.0=üŒ` 1–¢–:—§‚¿ã‚ª‚è‚ª‘¬‚¢ 1ˆÈã:’x‚¢
-						static const auto curve = [](double n, double exponent) {
-							return std::pow(n, exponent);
-						};
-#else
-						// ‚×‚«w”(y)‚ª©‘R”‚Ìê‡‚Ì‚‘¬”Å‚Ìpow = std::pow(x, y);
-						static const auto curve = [](T x, unsigned int y) {
-							T result = 1.0;
-							for (; y > 0; y /= 2) {
-								if (y % 2 == 1) result *= x;
-								x *= x;
-							}
-							return result;
-						};
-#endif
-						result.env[i] = curve(linear, 8);				// 8:‚³‚¶‰ÁŒ¸
-					}
-					return result;
-				}
-
-				Result result = {
-					std::nullopt,					// ‘S‘Ì‚Éˆê—¥‚ÉŠ|‚¯‚é’l
-					decltype(Result::env)(size),	// ¡‰ño—Í‚·‚éƒTƒ“ƒvƒ‹”
-				};
-				auto& env = result.env;
-				size_t i = 0;
-
-				// ƒGƒ“ƒxƒ[ƒv‚ÌƒfƒBƒŒƒC(ƒAƒ^ƒbƒN‚ªn‚Ü‚é‚Ü‚Å)
-				if (position + i < inter.delayVolEnv) {
-					size_t diff = inter.delayVolEnv - (position + i);
-					i += diff;
-					if (i >= env.size()) {
-						return result;
-					}
-				}
-
-				// AttackRate
-				const size_t beginAttack = inter.delayVolEnv;						// AttackRateŠJnˆÊ’u
-				if (position + i < beginAttack + inter.attackVolEnv) {				// AttackRate
-					const auto amp = inter.divAttack;								// 1ƒTƒ“ƒvƒ‹‚ ‚½‚è‚Ìamp’l = 1.0 / m_attackVolEnv
-					size_t pos = (position + i) - beginAttack;					// AttackRateŠJn‚©‚ç‚ÌˆÊ’u
-					const size_t max = (std::min)(env.size(), i + (inter.attackVolEnv - pos));
-					for (; i < max; i++, pos++) {
-						env[i] = amp * (pos + 1);
-					}
-					if (i >= env.size()) {
-						return result;
-					}
-				}
-
-				// Hold(ƒAƒ^ƒbƒN‚ªI‚í‚Á‚Ä‚©‚çƒfƒBƒPƒC‚ªn‚Ü‚é‚Ü‚Å)
-				const size_t beginHold = beginAttack + inter.attackVolEnv;			// HoldŠJnˆÊ’u
-				if (position + i < beginHold + inter.holdVolEnv) {					// ƒGƒ“ƒxƒ[ƒv‚Ìƒz[ƒ‹ƒhŠÔ(ƒAƒ^ƒbƒN‚ªI‚í‚Á‚Ä‚©‚çƒfƒBƒPƒC‚ªn‚Ü‚é‚Ü‚Å)
-					size_t pos = (position + i) - beginHold;					// HoldŠJn‚©‚ç‚ÌˆÊ’u
-					const size_t max = (std::min)(env.size(), i + (inter.holdVolEnv - pos));
-					for (; i < max; i++, pos++) {
-						env[i] = 1.0;
-					}
-					if (i >= env.size()) {
-						return result;
-					}
-				}
-
-				// DecayRate
-				const size_t beginDecay = beginHold + inter.holdVolEnv;				// DecayRateŠJnˆÊ’u
-				if (position + i < beginDecay + inter.decayVolEnv) {
-					const auto amp = inter.divSustainDecay;							// 1ƒTƒ“ƒvƒ‹‚ ‚½‚è‚Ìamp’l = (1.0 - m_sustainVolEnv) / m_decayVolEnv;
-					size_t pos = (position + i) - beginDecay;					// DecayRateŠJn‚©‚ç‚ÌˆÊ’u
-					const size_t max = (std::min)(env.size(), i + (inter.decayVolEnv - pos));
-					for (; i < max; i++, pos++) {
-						const size_t remain = inter.decayVolEnv - pos;				// ƒfƒBƒPƒCŠ®—¹‚Ü‚Å‚ÌŠÔ(ƒTƒ“ƒvƒ‹”)
-						env[i] = inter.sustainVolEnv + (amp * remain);
-					}
-					if (i >= env.size()) {
-						return result;
-					}
-				}
-
-				// sustainVolEnv
-				for (; i < env.size(); i++) {
-					env[i] = inter.sustainVolEnv;
-				}
-
-				return result;
-			}
-
 			void keyoff(const Note& note) {
 				auto& inter = ensureInter(note);
-
-				if (m_keyoff) return;		// Šù‚ÉkeyoffÏ‚İ‚È‚ç–³‹‚·‚é(³íŒn‚Å‚à‚ ‚è“¾‚é)
-				const auto amplitudes = getAmplitudes(inter.interInfo, m_renderedSize, 1);
+				if (m_keyoff) return;		// æ—¢ã«keyoffæ¸ˆã¿ãªã‚‰ç„¡è¦–ã™ã‚‹(æ­£å¸¸ç³»ã§ã‚‚ã‚ã‚Šå¾—ã‚‹)
+				const auto gains = inter.interInfo.get().envelope.getGains(m_renderedSize, 1);	// ç¾åœ¨ã®ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—å€¤
 				Keyoff k;
 				k.position = m_renderedSize;
-				k.amplitude = amplitudes.env[0];
+				k.amplitude = gains[0];
 				m_keyoff = k;
 			}
 
 			auto render(const Note& note, size_t size, double pitch = 0.0) {
 				auto& inter = ensureInter(note);
 
-				struct Result {	// –ß‚è’l
-					std::vector<T> samples;	// ”z—ñ”‚ªˆø”size–¢–‚Ìê‡‚Ío—ÍŠ®—¹‚ÌˆÓ–¡
+				struct Result {	// æˆ»ã‚Šå€¤
+					std::vector<T> samples;	// é…åˆ—æ•°ãŒå¼•æ•°sizeæœªæº€ã®å ´åˆã¯å‡ºåŠ›å®Œäº†ã®æ„å‘³
 					struct {
 						T l, r;
 					}amplitude;
@@ -297,14 +167,14 @@ namespace rlib::soundfont {
 				const typename Soundfont::SampleBody& sampleBody = *(m_instrumentRefer.instrumentSample.get().spSample);
 				const InterInfo& interInfo = inter.interInfo;
 
-				{// U•’l(sample‚ÉŠ|‚¯‚é’l)
-					T a = interInfo.initialAttenuationAmplitude;	// generator.initialAttenuation ”½‰f
-					a *= volumeGainTable[note.m_presetKey.velocity];	// ƒxƒƒVƒeƒB (ƒxƒƒVƒeƒB‚É‚Í„§®‚ª’è‹`‚³‚ê‚Ä‚È‚¢‚ªvolume‚Ì„§®‚Æ“¯“™‚Æ‚·‚é)
+				{// æŒ¯å¹…å€¤(sampleã«æ›ã‘ã‚‹å€¤)
+					T a = interInfo.initialAttenuationAmplitude;	// generator.initialAttenuation åæ˜ 
+					a *= midi::volumeGainTable<T>[note.m_presetKey.velocity];	// ãƒ™ãƒ­ã‚·ãƒ†ã‚£ (ãƒ™ãƒ­ã‚·ãƒ†ã‚£ã«ã¯æ¨å¥¨å¼ãŒå®šç¾©ã•ã‚Œã¦ãªã„ãŒvolumeã®æ¨å¥¨å¼ã¨åŒç­‰ã¨ã™ã‚‹)
 					result.amplitude.l = a * interInfo.pan.first;
 					result.amplitude.r = a * interInfo.pan.second;
 				}
 
-				const double multiply = [&] {				// æ’l(=1ƒTƒ“ƒvƒ‹‚ ‚½‚èi‚Ş’l)
+				const double multiply = [&] {				// ä¹—å€¤(=1ã‚µãƒ³ãƒ—ãƒ«ã‚ãŸã‚Šé€²ã‚€å€¤)
 					if (pitch == 0.0) {
 						return inter.advanceNormal;
 					} else {
@@ -312,15 +182,14 @@ namespace rlib::soundfont {
 					}
 				}();
 
-				// Enverope
-				const auto envelope = getAmplitudes(interInfo, m_renderedSize, size);
-				// const auto envelope = m_envelope.getAmplitudes(m_renderedSize, size);
-
-				if (envelope.same) {
-					result.amplitude.l *= *envelope.same;
-					result.amplitude.r *= *envelope.same;
+				// ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—å€¤(0.0ï½1.0) é…åˆ—ãŒsizeæœªæº€ãªã‚‰çµ‚äº†ã®æ„å‘³
+				const std::vector<T> env = m_keyoff ?
+					interInfo.envelope.getGainsReleaseRate(m_renderedSize - m_keyoff->position, size) :
+					interInfo.envelope.getGains(m_renderedSize, size);
+				if (m_keyoff) {
+					result.amplitude.l *= m_keyoff->amplitude;
+					result.amplitude.r *= m_keyoff->amplitude;
 				}
-				const std::vector<T>& env = envelope.env;
 
 #if 0
 				{// Enverope debug log
@@ -335,8 +204,8 @@ namespace rlib::soundfont {
 #endif
 
 				const auto isLoop = [&] {
-					if (interInfo.sampleModes == enumSampleMode::loop || interInfo.sampleModes == enumSampleMode::keyloop) {	// ƒ‹[ƒv‚ ‚è
-						if (sampleBody.loop.second - sampleBody.loop.first >= 32) {		// ƒ‹[ƒv”ÍˆÍ‚ª32ƒTƒ“ƒvƒ‹ˆÈã‚Ì‚İ—LŒø
+					if (interInfo.sampleModes == enumSampleMode::loop || interInfo.sampleModes == enumSampleMode::keyloop) {	// ãƒ«ãƒ¼ãƒ—ã‚ã‚Š
+						if (sampleBody.loop.second - sampleBody.loop.first >= 32) {		// ãƒ«ãƒ¼ãƒ—ç¯„å›²ãŒ32ã‚µãƒ³ãƒ—ãƒ«ä»¥ä¸Šã®ã¿æœ‰åŠ¹
 							return true;
 						}
 					}
@@ -349,10 +218,10 @@ namespace rlib::soundfont {
 
 					const auto posf = m_currentPosition;
 					size_t pos = static_cast<size_t>(posf);
-					if (!isLoop && pos >= smpl.size()) break;		// ÅŒã‚Ü‚Å‚¢‚Á‚½‚ç”²‚¯‚é
+					if (!isLoop && pos >= smpl.size()) break;		// æœ€å¾Œã¾ã§ã„ã£ãŸã‚‰æŠœã‘ã‚‹
 
 					T sample = [&] {
-						const T decimal = static_cast<T>(posf - pos);	// ¬”•”
+						const T decimal = static_cast<T>(posf - pos);	// å°æ•°éƒ¨
 						T a, b;
 						if (isLoop) {
 							if (pos > sampleBody.loop.second) {
@@ -360,21 +229,21 @@ namespace rlib::soundfont {
 							}
 							a = smpl[pos];
 							b = smpl[pos == sampleBody.loop.second ? sampleBody.loop.first : pos + 1];
-						} else {						// ƒ‹[ƒv‚È‚µ
-							a = smpl[pos];					// ”ÍˆÍƒ`ƒFƒbƒN‚Í•s—v(ã‚Å‚â‚Á‚Ä‚é)
+						} else {						// ãƒ«ãƒ¼ãƒ—ãªã—
+							a = smpl[pos];					// ç¯„å›²ãƒã‚§ãƒƒã‚¯ã¯ä¸è¦(ä¸Šã§ã‚„ã£ã¦ã‚‹)
 							b = pos + 1 < smpl.size() ? smpl[pos + 1] : 0;
 						}
 						return a + ((b - a) * decimal);
 					}();
 
-					sample *= env[i];		// ƒGƒ“ƒxƒ[ƒv
+					sample *= env[i];		// ã‚¨ãƒ³ãƒ™ãƒ­ãƒ¼ãƒ—
 
 					result.samples[i] = sample;
 
 					m_currentPosition += multiply;
 				}
 
-				if (i < size) {		// size–¢–‚Å”²‚¯‚Ä‚«‚½‚çŠ®—¹
+				if (i < size) {		// sizeæœªæº€ã§æŠœã‘ã¦ããŸã‚‰å®Œäº†
 					result.samples.resize(i);
 				}
 
@@ -389,7 +258,7 @@ namespace rlib::soundfont {
 			template<typename U> bool operator()(const U& a, const U& b)const { return &a.instrumentSample.get() < &b.instrumentSample.get(); }
 		};
 		struct {
-			std::map<const typename Soundfont::SampleBody*, std::vector<T>>	mapSample;	// •‚“®¬”“_””gŒ`ƒf[ƒ^À‘Ì
+			std::map<const typename Soundfont::SampleBody*, std::vector<T>>	mapSample;	// æµ®å‹•å°æ•°ç‚¹æ•°æ³¢å½¢ãƒ‡ãƒ¼ã‚¿å®Ÿä½“
 			std::map<typename Soundfont::InstrumentRefer, InterInfo, LessInstrumentRefer>		mapInterInfo;
 			std::recursive_mutex												mutex;
 		}m_interInfos;
@@ -423,14 +292,14 @@ namespace rlib::soundfont {
 			Note(const Note&) = delete;
 			Note& operator=(const Note&) = delete;
 
-			// ƒŒƒ“ƒ_ƒŠƒ“ƒO(”gŒ`ƒf[ƒ^o—ÍiŒ‹‰Ê”z—ñ‚ªsize–¢–‚È‚çŠ®—¹j
+			// ãƒ¬ãƒ³ãƒ€ãƒªãƒ³ã‚°(æ³¢å½¢ãƒ‡ãƒ¼ã‚¿å‡ºåŠ›ï¼ˆçµæœé…åˆ—ãŒsizeæœªæº€ãªã‚‰å®Œäº†ï¼‰
 			std::vector<midi::StereoSample<T>> render(size_t size, double pitch = 0.0) {
 				std::vector<midi::StereoSample<T>> result(size);
 
 				size_t resultSize = 0;
 				for (auto it = m_instruments.begin(); it != m_instruments.end();) {
 					const auto rendered = it->render(*this, size, pitch);
-					if (resultSize == 0) {		// Å‰‚È‚ç‘ã“üˆ—(‰ÁZ‚Í•s—v)
+					if (resultSize == 0) {		// æœ€åˆãªã‚‰ä»£å…¥å‡¦ç†(åŠ ç®—ã¯ä¸è¦)
 						for (size_t i = 0; i < rendered.samples.size(); i++) {
 							result[i].l = rendered.samples[i] * rendered.amplitude.l;
 							result[i].r = rendered.samples[i] * rendered.amplitude.r;
@@ -441,8 +310,8 @@ namespace rlib::soundfont {
 							result[i].r += rendered.samples[i] * rendered.amplitude.r;
 						}
 					}
-					if (rendered.samples.size() < size) {	// Š®—¹‚È‚ç
-						it = m_instruments.erase(it);		// ”jŠü
+					if (rendered.samples.size() < size) {	// å®Œäº†ãªã‚‰
+						it = m_instruments.erase(it);		// ç ´æ£„
 					} else {
 						it++;
 					}
@@ -473,16 +342,6 @@ namespace rlib::soundfont {
 			return Note(*this, presetKey, std::move(instruments));
 		}
 	};
-
-	// volume—p U•’l(0.0`1.0)ƒe[ƒuƒ‹
-	template <typename T> const std::array<T, 128> RendererT<T>::volumeGainTable = [] {
-		std::array<T, 128> table = {};
-		for (int n = 0; n < table.size(); n++) {
-			T m = n * (static_cast<T>(1) / 127);	// 0.0`1.0
-			table[n] = m * m;						// U•’l(0.0`1.0)‚ğZo uGM2d—lFgain[dB] = 40 * log10(cc7/127)v ‚©‚ç cc7/127 ‚Ì2æ
-		}
-		return table;
-	}();
 
 	using RendererF = RendererT<float>;
 	using Renderer = RendererT<double>;

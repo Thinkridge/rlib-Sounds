@@ -19,6 +19,8 @@ SoundFont (.sf2) decoder and MIDI-to-WAV converter implemented in C++.
 - No JavaScript or WebAssembly dependency required at the core level
 - Used internally by the WebAssembly / npm package
 
+- FM/PSG playback is powered by the [ymfm](https://github.com/aaronsgiles/ymfm) library (BSD 3-Clause, Copyright (c) 2021, Aaron Giles), vendored under `rlib-SoundFont/src/ymfm`
+
 📂 C++ Source
 `rlib-SoundFont/src`
 
@@ -100,4 +102,8 @@ npm run dev:rlibmml
 ## License
 
 See each package for license details.
-The repository contains components under MIT and CC0 (for upstream rlib-MML code).
+
+- MIT
+- CC0 (upstream rlib-MML code)
+- BSD 3-Clause (vendored ymfm library in `rlib-SoundFont/src/ymfm`; see `rlib-SoundFont/src/ymfm/LICENSE`)
+

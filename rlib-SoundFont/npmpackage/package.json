@@ -1,14 +1,18 @@
 {
   "name": "@thinkridge/rlib-soundfont",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "publishConfig": {
     "access": "public"
   },
-  "description": "SoundFont decoder",
+  "description": "SoundFont, FM, and PSG audio rendering for SMF/MIDI",
   "keywords": [
     "soundfont",
     "sf2",
     "midi",
+    "fm",
+    "psg",
+    "chiptune",
+    "ymfm",
     "wasm",
     "audio"
   ],
@@ -30,7 +34,7 @@
   ],
   "types": "./dist/index.d.ts",
   "scripts": {
-    "build:wasm": "docker run --rm -v ./../src:/opt/vol -w /opt/vol emsdk \"cd wasm && mkdir -p build && cd build && emcmake cmake .. && make\"",
+    "build:wasm": "node scripts/build-wasm.cjs",
     "build": "npm run build:wasm && tsup"
   },
   "devDependencies": {
