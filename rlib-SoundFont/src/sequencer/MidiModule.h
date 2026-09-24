@@ -1,7 +1,12 @@
 ﻿#pragma once
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <future>
 #include <typeindex>
+#include <utility>
+#include <vector>
 
 #include "../sequencer/MidiEvent.h"
 

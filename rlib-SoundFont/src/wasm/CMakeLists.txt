@@ -35,7 +35,7 @@ add_executable ( ${CMAKE_PROJECT_NAME}
 	"../sequencer/SoundfontRenderer.h"
 	"../sequencer/TempoList.h"
 	"../ymfm/ymfm_adpcm.cpp"
-	"../ymfm/ymfm_opn.cpp"
+	"../sequencer/YmfmOpn.cpp"
 	"../ymfm/ymfm_ssg.cpp"
 )
 

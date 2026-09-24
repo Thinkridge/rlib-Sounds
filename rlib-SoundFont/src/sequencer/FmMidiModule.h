@@ -1,9 +1,14 @@
 ﻿#pragma once
 
+#include <algorithm>
 #include <future>
+#include <map>
 #include <optional>
 #include <set>
+#include <string>
 #include <typeindex>
+#include <utility>
+#include <vector>
 
 #include "../json/Json.h"
 #include "../ymfm/ymfm_opn.h"
@@ -19,7 +24,7 @@ namespace rlib::fm {
 
 		struct Preset {
 			std::string								name;
-			typename ChipWrapper2203::FmProgramReg	reg;
+			typename ChipWrapper2203fm::FmProgramReg	reg;
 		};
 
 		std::map<uint16_t, std::map< uint8_t, typename MidiModuleT<T>::Preset>> m_presets = {
@@ -611,9 +616,12 @@ namespace rlib::fm {
 #else
 			constexpr auto asyncLaunch = std::launch::async;
 #endif
-			std::vector<std::future<std::vector<midi::StereoSample<T>>>> futureChannels;
+			std::vector<std::future<std::vector<typename midi::StereoSample<T>>>> futureChannels;
+			int useCount = 0;
 			for (auto& channel : m_channels) {
-				futureChannels.emplace_back(std::async(asyncLaunch, [self = &std::as_const(*this), &channel = const_cast<Channel&>(channel), size, asyncLaunch] {
+				if (channel.m_notes.empty()) continue;	// 発音中のノートが無いなら何もしない
+				const auto launch = (++useCount) >= 2 ? asyncLaunch : std::launch::deferred;	// 最初の１つは同期(スレッド生成を節約)
+				futureChannels.emplace_back(std::async(launch, [self = &std::as_const(*this), &channel = const_cast<Channel&>(channel), size] {
 
 					std::vector<T> resultMono;
 					for (auto it = channel.m_notes.begin(); it != channel.m_notes.end();) {
@@ -646,7 +654,6 @@ namespace rlib::fm {
 
 					return result;
 				}));
-
 			}
 
 			std::vector<midi::StereoSample<T>> result;
@@ -692,49 +699,6 @@ namespace rlib::fm {
 #endif
 			return result;
 		}
-
-#if 0
-		// レンダリング(波形データ出力（結果配列がsize未満なら完了=無音）
-		std::vector<Sample> readSamples(size_t size) {
-			std::vector<Sample> result;
-#if 0
-			const int clock = 3993600;
-			// const int clock = 4000000;
-			uint64_t output_step = 0x100000000ull / m_sampleRate;
-
-			auto& chip = m_chip.m_chip;
-			const auto step = 0x100000000ull / chip.sample_rate(clock);
-
-			for (size_t i = 0; i < size; i++) {
-
-				decltype(m_chip)::ChipType::output_data output;
-				for (size_t n = 0; n < output_step; n += step) {
-					chip.generate(&output, 1);
-				}
-
-				int32_t out0 = output.data[0];	// FM
-				int32_t out1 = output.data[1 % ymfm::ym2203r::OUTPUTS];	// SSG1
-				int32_t out2 = output.data[2 % ymfm::ym2203r::OUTPUTS];	// SSG2
-				int32_t out3 = output.data[3 % ymfm::ym2203r::OUTPUTS];	// SSG2
-				auto out = static_cast<intmax_t>(out0) + out1 + out2 + out3;
-
-				// s.l = s.r = static_cast<T>(n) / 32767;
-				const T n = out * (static_cast<T>(1.0) / 32767);
-
-				{// 音量を反映
-					
-
-
-				}
-
-				Sample s;
-				s.l = s.r = n;
-				result.push_back(s);
-			}
-#endif
-			return result;
-		}
-#endif
 
 		// Eventはリリース音も含めて全て処理されている状態か
 		bool isSilence()const override {

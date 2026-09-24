@@ -287,37 +287,22 @@ namespace rlib::soundfont {
 			constexpr auto asyncLaunch = std::launch::async;
 #endif
 			std::vector<std::future<std::vector<typename midi::StereoSample<T>>>> futureChannels;
+			int useCount = 0;
 			for (auto& channel : m_channels) {
-				futureChannels.emplace_back(std::async(asyncLaunch, [self = &std::as_const(*this), &channel = const_cast<Channel&>(channel), size, asyncLaunch] {
-#if 0
-					const T pitch = channel.m_pitchBend / ((channel.m_pitchBend >= 0 ? 8191 : 8192) / static_cast<T>(2.0));	// とりあえずベンドレンジは2固定
-					std::vector<typename RendererT<T>::Sample> result(size);
-					for (auto it = channel.m_notes.begin(); it != channel.m_notes.end();) {
-						auto& list = it->second;
-						for (auto t = list.begin(); t != list.end();) {
-							auto sp = *t;
-							if (!sp) throw std::runtime_error("not released note.");	// failsafe
-							const auto samples = sp->render(size, pitch);
-							for (size_t i = 0; i < samples.size(); i++) {
-								result[i].l += samples[i].l;
-								result[i].r += samples[i].r;
-							}
-							if (sp->isFinished())	t = list.erase(t);		// 終わっていればlistから破棄
-							else					t++;
-						}
-						if (list.size() <= 0)	it = channel.m_notes.erase(it);			// 終わっていればmapから破棄
-						else					it++;
-					}
-#else
+				if (channel.m_notes.empty()) continue;	// 発音中のノートが無いなら何もしない
+				const auto launch = (++useCount) >= 2 ? asyncLaunch : std::launch::deferred;	// 最初の１つは同期(スレッド生成を節約)
+				futureChannels.emplace_back(std::async(launch, [self = &std::as_const(*this), &channel = const_cast<Channel&>(channel), size, asyncLaunch] {
 					std::vector<std::future<decltype((*(channel.m_notes[0].begin()))->render(0, 0))>> futures;
+
+					int noteCount = 0;
 					for (const auto& note : channel.m_notes) {
 						for (const auto& sp : note.second) {
-							if (sp) {		// failsafe
-								const auto pitch = channel.m_fineTune + channel.m_pitch.get().result;
-								futures.emplace_back(std::async(asyncLaunch, [sp, size, pitch] {
-									return sp->render(size, pitch);
-								}));
-							}
+							if (!sp) continue;		// failsafe
+							const auto pitch = channel.m_fineTune + channel.m_pitch.get().result;
+							const auto launch = (++noteCount) >= 2 ? asyncLaunch : std::launch::deferred;	// 最初の１つは同期(スレッド生成を節約)
+							futures.emplace_back(std::async(launch, [sp, size, pitch] {
+								return sp->render(size, pitch);
+							}));
 						}
 					}
 
@@ -342,7 +327,6 @@ namespace rlib::soundfont {
 						}
 						n = n->second.size() <= 0 ? channel.m_notes.erase(n) : ++n;	// 終わっていればmapから破棄
 					}
-#endif
 
 					// 音量処理(channel.m_gain算出)
 					if (!channel.m_gain) {
@@ -357,7 +341,6 @@ namespace rlib::soundfont {
 
 					return result;
 				}));
-
 			}
 
 			std::vector<typename midi::StereoSample<T>> result;

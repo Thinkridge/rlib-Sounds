@@ -5,7 +5,10 @@
 #include <map>
 #include <optional>
 #include <set>
+#include <string>
 #include <typeindex>
+#include <utility>
+#include <vector>
 
 #include "../ymfm/ymfm_opn.h"
 #include "../json/Json.h"
@@ -15,12 +18,6 @@
 
 namespace rlib::fm::psg {
 
-	// PSG(SSG)音源用の MidiModule。
-	//
-	// fm::MidiModuleT (FmMidiModule.h) とほぼ同じ構造(チャンネル管理・
-	// ボリューム/エクスプレッション/パン・ピッチベンド・マスターボリューム)
-	// だが、ym2203_ssg はトーン(矩形波)のみのため音色(プログラム)の概念が無く、
-	// プログラムチェンジ/バンクセレクトは受信のみ行い実際の音には影響しない。
 	template <typename T = double> class MidiModuleT : public midi::MidiModuleBase<T> {
 		using Bit14 = midi::utility::Bit14;
 
@@ -376,9 +373,12 @@ namespace rlib::fm::psg {
 #else
 			constexpr auto asyncLaunch = std::launch::async;
 #endif
-			std::vector<std::future<std::vector<midi::StereoSample<T>>>> futureChannels;
+			std::vector<std::future<std::vector<typename midi::StereoSample<T>>>> futureChannels;
+			int useCount = 0;
 			for (auto& channel : m_channels) {
-				futureChannels.emplace_back(std::async(asyncLaunch, [self = &std::as_const(*this), &channel = const_cast<Channel&>(channel), size, asyncLaunch] {
+				if (channel.m_notes.empty()) continue;	// 発音中のノートが無いなら何もしない
+				const auto launch = (++useCount) >= 2 ? asyncLaunch : std::launch::deferred;	// 最初の１つは同期(スレッド生成を節約)
+				futureChannels.emplace_back(std::async(launch, [self = &std::as_const(*this), &channel = const_cast<Channel&>(channel), size] {
 
 					std::vector<T> resultMono;
 					for (auto it = channel.m_notes.begin(); it != channel.m_notes.end();) {

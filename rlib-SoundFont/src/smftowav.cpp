@@ -73,7 +73,7 @@ int main(const int argc, const char* const argv[])
 		po::store(po::command_line_parser(argc, argv).options(desc).positional(pd).run(), vm);
 
 		if (vm.count("version")) {
-			std::cout << "smftowav version 1.0.5" << std::endl;
+			std::cout << "smftowav version 1.0.6" << std::endl;
 			return 0;
 		}
 
