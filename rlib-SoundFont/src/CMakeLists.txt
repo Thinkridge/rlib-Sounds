@@ -22,7 +22,7 @@ project ("smftowav")
 add_executable (smftowav
 	"./smftowav.cpp"
 	"./sequencer/Smf.cpp"
-	"./ymfm/ymfm_opn.cpp"
+	"./sequencer/YmfmOpn.cpp"
 	"./ymfm/ymfm_adpcm.cpp"
 	"./ymfm/ymfm_ssg.cpp"
 )

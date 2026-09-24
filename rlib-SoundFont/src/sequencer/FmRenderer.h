@@ -1,13 +1,148 @@
 ﻿#pragma once
 
-#include "../ymfm/ymfm_opn.h"
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+#include <memory>
+#include <vector>
+
+#include "../ymfm/ymfm_opn.h"	// ymfm::opn_registers
+#include "./MidiModule.h"		// midi::volumeGainTable
 
 namespace rlib::fm {
 
-	class ChipWrapper2203 : public ymfm::ymfm_interface {
+	// ymfm:ym2203 をFMに特化させたクラス
+	class ym2203fm
+	{
 	public:
-		using ChipType = ymfm::ym2203;
+		using fm_engine = ymfm::fm_engine_base<ymfm::opn_registers>;
+		using output_data = fm_engine::output_data;
+
+		explicit ym2203fm(ymfm::ymfm_interface& intf)
+			: m_address(0)
+			, m_fm(intf)
+		{
+			m_last_fm.clear();
+		}
+		ym2203fm(const ym2203fm&) = delete;
+		ym2203fm& operator=(const ym2203fm&) = delete;
+
+		// リセット
+		void reset()
+		{
+			m_fm.reset();
+		}
+
+		void save_restore(ymfm::ymfm_saved_state& state)
+		{
+			state.save_restore(m_address);
+			state.save_restore(m_last_fm.data);
+			m_fm.save_restore(state);
+		}
+
+		// 読み込み（FM以外は割愛）
+		uint8_t read_status()
+		{
+			uint8_t result = m_fm.status();
+			if (m_fm.intf().ymfm_is_busy())
+				result |= fm_engine::STATUS_BUSY;
+			return result;
+		}
+		uint8_t read(uint32_t offset)
+		{
+			uint8_t result = 0xff;
+			switch (offset & 1)
+			{
+			case 0: // status port
+				result = read_status();
+				break;
+
+			case 1: // data port (only SSG)
+				result = 0; // read_data(); PSGはナシ
+				break;
+			}
+			return result;
+		}
+
+		// 書き込み （FM以外は割愛）
+		void write_address(uint8_t data)
+		{
+			// just set the address
+			m_address = data;
+		}
+		void write_data(uint8_t data)
+		{
+			// 10-FF: write to FM
+			m_fm.write(m_address, data);
+
+			// mark busy for a bit
+			m_fm.intf().ymfm_set_busy_end(32 * m_fm.clock_prescale());
+		}
+		void write(uint32_t offset, uint8_t data)
+		{
+			switch (offset & 1)
+			{
+			case 0: // address port
+				write_address(data);
+				break;
+
+			case 1: // data port
+				write_data(data);
+				break;
+			}
+		}
+
+		// 指定サンプリングレート(target_rate)で1サンプルを直接生成する。
+		//   clock       : マスタークロック(Hz。例: 3,993,600)
+		//   target_rate : 欲しい出力サンプリングレート(Hz。例: 44,100)
+		void generate_resampled_one(output_data* output, uint32_t clock, uint32_t target_rate)
+		{
+			constexpr uint32_t kOutputRateDivider = 4;
+			const uint32_t src_rate = clock / kOutputRateDivider;
+
+			m_resampled.resampleAcc += src_rate;
+			const uint32_t skip = (std::max)(m_resampled.resampleAcc / target_rate, 1u);	// 今回進める内部クロック数
+			m_resampled.resampleAcc %= target_rate;
+
+			constexpr uint32_t kFmSamplesPerOutput = 18;	// 内部クロックの18回(ym2203::update_prescale(uint8_t prescale=6))に1回FMを進める
+			const uint32_t phase = m_resampled.phase;		// 次のクロックの位置(0～17)
+			uint32_t count = (phase + skip + kFmSamplesPerOutput - 1) / kFmSamplesPerOutput - (phase + kFmSamplesPerOutput - 1) / kFmSamplesPerOutput;
+			m_resampled.phase = (phase + skip) % kFmSamplesPerOutput;
+			while (count--) clock_fm_ch0();
+			output->clear();
+			output->data[0] = m_last_fm.data[0];
+		}
+
+	protected:
+		// ch0 のみを対象に FM を1クロック分進める
+		// mask を ch0 のみ にすることで、未使用の ch1/2 処理を端折る
+		void clock_fm_ch0()
+		{
+			constexpr uint32_t kChannel0Mask = 1u << 0;	// ch0 のみを表すビットマスク
+			m_fm.clock(kChannel0Mask);	// .clock(fm_engine::ALL_CHANNELS);
+
+			// update the FM content; OPN is full 14-bit with no intermediate clipping
+			m_fm.output(m_last_fm.clear(), 0, 32767, kChannel0Mask);
+
+			// convert to 10.3 floating point value for the DAC and back
+			m_last_fm.roundtrip_fp();
+		}
+
+	private:
+		uint8_t					m_address;				// address register
+		fm_engine::output_data	m_last_fm;				// last FM output
+		fm_engine				m_fm;					// core FM engine
+		struct {
+			uint32_t			phase = 0;			// 次の内部クロックの位置(0～17)
+			uint32_t			resampleAcc = 0;
+		}m_resampled;
+	};
+
+
+	class ChipWrapper2203fm : public ymfm::ymfm_interface {
+	public:
 		static constexpr uint32_t masterClock = 3993600;		// マスタークロック (デフォルト分周期でのOPN適正値)
+		ym2203fm m_chip;
 
 		union Reg28H {
 			struct {
@@ -18,7 +153,7 @@ namespace rlib::fm {
 			uint8_t val = 0;
 		};
 
-		ChipWrapper2203() :
+		ChipWrapper2203fm() :
 			m_chip(*this)
 		{
 			// reset
@@ -44,7 +179,7 @@ namespace rlib::fm {
 
 			const double fnote = note + pitch;
 			const int octave = static_cast<int>(fnote) / 12;			// octave(block)
-			const double local = fnote - (octave * 12);					// C(0.0) ～ B(11.0) ～ 12.0未満 
+			const double local = fnote - (octave * 12);					// C(0.0) ～ B(11.0) ～ 12.0未満
 			const auto mag = std::exp2((local - 9) * (1.0 / 12));		// 倍率 ( 9 は CからAへの差 )
 			const auto fnumber = a4fnumber * mag;
 
@@ -61,9 +196,15 @@ namespace rlib::fm {
 				uint8_t val[2] = { 0 };
 			};
 
+			// 範囲外になる音域(ノート0～11、108以上)は、f-number を 1/2(or2)倍しながら block を範囲内に収める
+			int block = octave - 1;
+			double fnum = fnumber;
+			while (block < 0) { fnum *= 0.5; block++; }
+			while (block > 7) { fnum *= 2.0; block--; }
+
 			BlockFNumber bf{ 0 };
-			bf.fnumber = static_cast<decltype(bf.fnumber)>(std::round(fnumber));
-			bf.block = octave - 1;
+			bf.fnumber = std::min<decltype(bf.fnumber)>(static_cast<decltype(bf.fnumber)>(std::round(fnumber)), 0x7ff);	// f-number は11bit
+			bf.block = static_cast<decltype(bf.block)>(block);
 
 			uint8_t channel = 0;	// チャンネルは0のみ使用
 			const uint8_t addrL = 0xa0 + channel;
@@ -195,60 +336,8 @@ namespace rlib::fm {
 
 		}
 
-
-		// MIDIノート番号(小数点以下はセント単位のずれ)からトーン周期レジスタを算出して書き込む
-		void psgSetPitch(uint8_t note, double pitch = 0.0) {
-			constexpr uint8_t channel = 0;		// チャンネルは0(A)のみ使用
-			
-			constexpr double a4note = 69.0;		// A4のノート番号(MIDI標準)
-			constexpr double a4freq = 440.0;	// A4は440Hzとする
-			const double fnote = note + pitch;
-			const double freq = a4freq * std::pow(2.0, (fnote - a4note) * (1.0 / 12.0));
-
-			// freq = masterClock / (8 × 内蔵分周器の分周数(4) × period ) ⇔ period = masterClock / (32 × freq)
-			const double periodF = masterClock / (32.0 * freq);
-			uint32_t period = static_cast<uint32_t>(std::llround(periodF));
-			period = std::clamp<uint32_t>(period, 1, 0xfff);	// 12bitレジスタ
-
-			regWrite(channel * 2 + 0x00, static_cast<uint8_t>(period & 0xff));
-			regWrite(channel * 2 + 0x01, static_cast<uint8_t>((period >> 8) & 0x0f));
-		}
-
-		void psgSetNoise(uint8_t noise) {
-			regWrite(0x06, noise & 0x1f);	// ノイズ周波数(1～31。0は1と等価)
-		}
-
-		void psgSetLevel(int8_t level) {
-			constexpr uint8_t channel = 0;		// チャンネルは0(A)のみ使用
-			union Reg {
-				struct {
-					uint8_t	level : 4;		// level (bits0-3)
-					uint8_t	m : 1;			// 0:固定振幅 1:可変振幅 (bit4)
-					uint8_t	none : 3;
-				};
-				uint8_t val = 0;
-			}r;
-			r.level = level;
-			regWrite(channel + 0x08, r.val);
-		}
-
-		void psgSetMixer(uint8_t noise, uint8_t	tone) {
-			union Reg {
-				struct {
-					uint8_t	tone : 3;		// chA～C (0=enable,1=disable)
-					uint8_t	noise : 3;		// chA～C (0=enable,1=disable)
-					uint8_t	inout : 2;
-				};
-				uint8_t val = 0;
-			}r;
-			r.noise = noise;
-			r.tone = tone;
-			regWrite(0x07, r.val);
-		}
-
-	public:
-		ChipType m_chip;
 	};
+
 
 	template <typename T = double> class RendererT {
 	public:
@@ -274,13 +363,12 @@ namespace rlib::fm {
 			RendererT& m_renderer;
 			const PresetKey m_presetKey;
 		private:
-			ChipWrapper2203				m_chip;
-			bool						m_keyoff = false;
-			const T						m_amplitude;			// 16bitからT型へ変換する係数(velocity値から)
-			uintmax_t					m_clockCount = 0;		// 実施済クロック数
-			size_t						m_silenceCount = 0;
+			ChipWrapper2203fm	m_chip;
+			bool				m_keyoff = false;
+			const T				m_amplitude;			// 16bitからT型へ変換する係数(velocity値から)
+			size_t				m_silenceCount = 0;
 		private:
-			Note(RendererT& renderer, const PresetKey& presetKey, const ChipWrapper2203::FmProgramReg& program, double pitch)
+			Note(RendererT& renderer, const PresetKey& presetKey, const ChipWrapper2203fm::FmProgramReg& program, double pitch)
 				: m_renderer(renderer)
 				, m_presetKey(presetKey)
 				, m_amplitude((static_cast<T>(1.0) / 32767)* midi::volumeGainTable<T>[presetKey.velocity])
@@ -299,54 +387,55 @@ namespace rlib::fm {
 			}
 
 			//// レンダリング（結果配列がsize未満なら完了）旧愚直コード
-			std::vector<T> render(size_t size) {
-				std::vector<T> result(size);
-				auto& chip = m_chip.m_chip;
-				const auto sr = chip.sample_rate(ChipWrapper2203::masterClock);					// 1秒あたりのクロック数		3,993,600/4 = 998,400
-				const T n = static_cast<T>(m_renderer.m_sampleRate) / sr;		// 1クロックあたりのサンプル数	44,100/998,400 = 0.04417
-				uintmax_t before = static_cast<uintmax_t>(m_clockCount * n);	// 読み出し済の位置(サンプルあたり)
-				for (size_t outCount = 0; true;) {
-					typename decltype(m_chip)::ChipType::output_data output;
-					chip.generate(&output, 1);
-					const uintmax_t current = static_cast<uintmax_t>((++m_clockCount) * n);	// 読み出し済の位置(サンプルあたり)
-					if (before != current) {									// 出力タイミング？
-						const int32_t out = output.data[0];				// FM
-						if (out == 0) {
-							if (m_keyoff && ++m_silenceCount > 16) {	// 発音完了？
-								result.resize(outCount);
-								break;
-							}
-						} else {
-							m_silenceCount = 0;
-							result[outCount] = out * m_amplitude;		// -1.0～1.0 へ変換(veloctiy込み)
-						}
-						if (++outCount >= size) break;
-						before = current;
-					}
-				}
-				return result;
-			}
-
-			// レンダリング(波形データ出力（結果配列がsize未満なら完了）
 			//std::vector<T> render(size_t size) {
 			//	std::vector<T> result(size);
 			//	auto& chip = m_chip.m_chip;
-			//	for (size_t outCount = 0; outCount < size; outCount++) {
-			//		typename decltype(m_chip)::ChipType::output_data output;
-			//		chip.generate_resampled_one(&output, masterClock, m_renderer.m_sampleRate);
-			//		const int32_t out = output.data[0];				// FM
-			//		if (out == 0) {
-			//			if (m_keyoff && ++m_silenceCount > 16) {	// 発音完了？
-			//				result.resize(outCount);
-			//				break;
+			//	const auto sr = chip.sample_rate(ChipWrapper2203::masterClock);		// 1秒あたりのクロック数		3,993,600/4 = 998,400
+			//	const T n = static_cast<T>(m_renderer.m_sampleRate) / sr;		// 1クロックあたりのサンプル数	44,100/998,400 = 0.04417
+			//	uintmax_t before = static_cast<uintmax_t>(m_clockCount * n);	// 読み出し済の位置(サンプルあたり)
+			//	for (size_t outCount = 0; true;) {
+			//		typename decltype(m_chip.m_chip)::output_data output;
+			//		chip.generate(&output, 1);
+			//		const uintmax_t current = static_cast<uintmax_t>((++m_clockCount) * n);	// 読み出し済の位置(サンプルあたり)
+			//		if (before != current) {									// 出力タイミング？
+			//			const int32_t out = output.data[0];				// FM
+			//			if (out == 0) {
+			//				if (m_keyoff && ++m_silenceCount > 16) {	// 発音完了？
+			//					result.resize(outCount);
+			//					break;
+			//				}
+			//			} else {
+			//				m_silenceCount = 0;
+			//				result[outCount] = out * m_amplitude;		// -1.0～1.0 へ変換(veloctiy込み)
 			//			}
-			//		} else {
-			//			m_silenceCount = 0;
-			//			result[outCount] = out * m_amplitude;		// -1.0～1.0 へ変換(veloctiy込み)
+			//			if (++outCount >= size) break;
+			//			before = current;
 			//		}
 			//	}
 			//	return result;
 			//}
+
+			// レンダリング(波形データ出力（結果配列がsize未満なら完了）
+			// generate_resampled_one() で、出力サンプルレートに沿ったサンプル値を返す
+			std::vector<T> render(size_t size) {
+				std::vector<T> result(size);
+				auto& chip = m_chip.m_chip;
+				for (size_t outCount = 0; outCount < size; outCount++) {
+					typename decltype(m_chip.m_chip)::output_data output;
+					chip.generate_resampled_one(&output, ChipWrapper2203fm::masterClock, m_renderer.m_sampleRate);
+					const int32_t out = output.data[0];				// FM
+					if (out == 0) {
+						if (m_keyoff && ++m_silenceCount > 16) {	// 発音完了？
+							result.resize(outCount);
+							break;
+						}
+					} else {
+						m_silenceCount = 0;
+						result[outCount] = out * m_amplitude;		// -1.0～1.0 へ変換(veloctiy込み)
+					}
+				}
+				return result;
+			}
 
 			void setKeyoff() {
 				m_keyoff = true;
@@ -355,17 +444,13 @@ namespace rlib::fm {
 
 		};
 
-		std::shared_ptr<Note> createNote(const PresetKey& presetKey, const ChipWrapper2203::FmProgramReg& program, double pitch) {
+		std::shared_ptr<Note> createNote(const PresetKey& presetKey, const ChipWrapper2203fm::FmProgramReg& program, double pitch) {
 			return std::shared_ptr<Note>(new Note(*this, presetKey, program, pitch));
 		}
 
 	};
 
-
-
-
 	using RendererF = RendererT<float>;
 	using Renderer = RendererT<double>;
 }
-
 
