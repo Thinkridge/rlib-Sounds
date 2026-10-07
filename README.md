@@ -76,8 +76,8 @@ Build the Docker image:
 
 ```bash
 docker build \
-  --build-arg EMSCRIPTEN_VERSION=4.0.21 \
-  --build-arg BOOST_VERSION=1.89.0 \
+  --build-arg EMSCRIPTEN_VERSION=6.0.10 \
+  --build-arg BOOST_VERSION=1.92.0 \
   -t emsdk .
 ```
 
