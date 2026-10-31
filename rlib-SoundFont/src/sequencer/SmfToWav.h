@@ -15,25 +15,31 @@
 namespace rlib {
 
 	class SmfToWav {
-		SmfToWav(TempoListT<double>&& tempoList, std::map<std::string, midi::Smf::Events>&& mapEvents)
+	public:
+		// <instrument,<position,<port,event>>>  (port: MIDI Port。Portメタが無ければ 0)
+		// instrument ごとに1つの入れ物へ、トラック順・トラック内の順で追加する(同じpositionのイベントの順序はSMFの並びを保つ)
+		using MapEvents = std::map<std::string, std::multimap<size_t, std::pair<uint8_t, std::shared_ptr<const midi::Event>>>>;
+	private:
+		SmfToWav(TempoListT<double>&& tempoList, MapEvents&& mapEvents)
 			: m_tempoList(tempoList)
 			, m_mapEvents(mapEvents)
 		{
 		}
 	public:
-		const TempoListT<double>						m_tempoList;
-		const std::map<std::string, midi::Smf::Events>	m_mapEvents;		// map<instrument,events>
+		const TempoListT<double>	m_tempoList;
+		const MapEvents				m_mapEvents;
 
 		static SmfToWav create(const midi::Smf& smf)
 		{
 			TempoListT<double>							tempoList;
-			std::map<std::string, midi::Smf::Events>	mapEvents;
+			MapEvents									mapEvents;
 			const auto mul = TempoListT<double>::timeBase / smf.timeBase;			// timebaseを480にする
 
 			for (auto& track : smf.tracks) {
 
 				std::string instrumentName;
-				midi::Smf::Events *pEvents = nullptr;
+				uint8_t port = 0;		// 現在の MIDI Port (Portメタで更新。Portメタが無ければ 0)
+				MapEvents::mapped_type *pEvents = nullptr;
 				const auto getEvents = [&]{
 					if (!pEvents) {
 						auto& events = mapEvents[instrumentName];
@@ -49,15 +55,18 @@ namespace rlib {
 							instrumentName = meta->getText();
 							pEvents = nullptr;
 							break;
+						case midi::EventMeta::Type::port:	// MIDI Port メタ: 以降のイベントはこのPortへ
+							if (meta->data.size() == 1) port = meta->data[0];
+							break;
 						case midi::EventMeta::Type::tempo:
 							tempoList.insert(position * mul, static_cast<typename decltype(tempoList)::Type>(meta->getTempo()));
 							break;
 						default:
-							getEvents()->emplace(position * mul, event);
+							getEvents()->emplace(position * mul, std::make_pair(port, event));
 							break;
 						}
 					} else {
-						getEvents()->emplace(position * mul, event);
+						getEvents()->emplace(position * mul, std::make_pair(port, event));
 					}
 				}
 			}
@@ -73,13 +82,14 @@ namespace rlib {
 				struct Info {
 					std::shared_ptr<const midi::Event>	event;
 					std::reference_wrapper<midi::MidiModuleBase<T>>	refMidiModule;
+					uint8_t											port = 0;	// MIDI Port
 				};
 				std::multimap<size_t, Info> combinedEvents;	// <position,Info>
 				for (auto& [instrument, events] : m_mapEvents) {
 					auto it = midiModuleMap.find(instrument);
 					midi::MidiModuleBase<T>& midiModule = it != midiModuleMap.end() ? it->second : midiModuleMap.begin()->second;
-					for (auto& [position, event] : events) {
-						combinedEvents.emplace(position, Info{ event, midiModule });
+					for (auto& [position, portEvent] : events) {
+						combinedEvents.emplace(position, Info{ portEvent.second, midiModule, portEvent.first });
 					}
 				}
 				return combinedEvents;
@@ -136,7 +146,7 @@ namespace rlib {
 				const auto next = combinedEvents.upper_bound(current->first);
 				for (auto it = current; it != next; it++) {
 					midi::MidiModuleBase<T>& midiModule = it->second.refMidiModule;
-					midiModule.setMidiEvent(*it->second.event);
+					midiModule.setMidiEvent(*it->second.event, it->second.port);
 				}
 
 				if (next != combinedEvents.end()) {

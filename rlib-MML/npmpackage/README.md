@@ -48,6 +48,51 @@ try {
 }
 ```
 
+## Usage: measures / tick / time conversion (Timeline)
+
+```javascript
+const rlibMml = await getRlibMml();
+const { smf } = rlibMml.mmlToSmf(mml);
+const timeline = rlibMml.getTimeline(smf);
+try {
+  const loc = timeline.getLocationFromTick(1920);   // { measure, beat, tick } (0-based)
+  const loc2 = timeline.getLocationFromTime(10);    // time (seconds from the start) -> Location
+  const sec = timeline.getTimeFromLocation(loc2);   // Location -> time (seconds)
+  const tick = timeline.getTickFromTime(sec);       // time (seconds) -> tick (4th note = 480 ticks)
+  const bars = timeline.getMeasureTicks(9600);   // Uint32Array: start tick of each measure, up to the measure containing tick 9600 (plus the next bar line)
+  const sections = timeline.getSections();        // time signature sections
+} finally {
+  timeline.dispose(); // release (also released automatically on GC)
+}
+```
+
+- The timeline has no end: values at any position are converted as if the last time signature and tempo continue forever.
+- Negative values are treated as 0. Time to tick is rounded down.
+- A time signature change in the middle of a measure starts a new measure from that point.
+
+## Usage: tracks of a SMF (getTracks)
+
+```javascript
+const data = rlibMml.getTracks(smf); // { ticksPerQuarter: 480, endTick, tracks: [{ name, instrument, channel, port?, events: [...] }, ...] }
+for (const track of data.tracks) {
+  console.log(track.name, track.channel, track.port);
+  for (const e of track.events) {
+    switch (e.type) {
+      case "note": console.log(e.tick, e.length, e.note, e.velocity); break;
+      case "tempo": console.log(e.tick, e.bpm); break;
+      case "timeSignature": console.log(e.tick, `${e.numerator}/${e.denominator}`); break;
+      // "programChange" | "controlChange" | "pitchBend" | "meta" | "sysEx"
+    }
+  }
+}
+```
+
+- A track is one channel (and port). A SMF track that uses several channels becomes several tracks. Events of each track are sorted by tick. The resolution is converted to 480 ticks per quarter note.
+- NoteOn and NoteOff are merged into one `note` event with `length`. A NoteOn with velocity 0 is treated as NoteOff. A note that is not ended lasts until the next NoteOn of the same note, up to an eighth note.
+- Polyphonic key pressure and channel pressure are not included.
+- `meta` has `metaType` and `data` (bytes). For text, decode it with `new TextDecoder().decode(Uint8Array.from(e.data))`.
+- `endTick` is the position of the last event of all tracks (the end position for notes).
+
 ## MML Reference
 
 See the full MML specification:  

@@ -28,6 +28,10 @@ namespace rlib::midi {
 
 		virtual void setMidiEvent(const midi::Event& ev) = 0;
 
+		// MIDI Port 付き。port は同じモジュール内のチャンネルの名前空間を広げる(ポート数に上限はない)。
+		// ポート非対応のモジュールは、ポートを無視して setMidiEvent(ev) と同じ動作になる。
+		virtual void setMidiEvent(const midi::Event& ev, uint8_t port) { (void)port; setMidiEvent(ev); }
+
 		// レンダリング(波形データ出力（結果配列がsize未満なら完了=無音）
 		virtual std::vector<StereoSample<T>> readSamples(size_t size) = 0;
 
