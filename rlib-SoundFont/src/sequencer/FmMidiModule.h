@@ -294,8 +294,15 @@ namespace rlib::fm {
 
 		RendererT<T>	m_renderer;
 
+		// チャンネルの識別子 (port, ch)。ポート数に上限は設けない(使われた (port,ch) だけ遅延生成する)
+		struct ChannelId {
+			const uint8_t	port;		// MIDI Port (0～255)
+			const uint8_t	channel;	// ch (0～15)
+			auto operator<=>(const ChannelId&) const = default;		// port, channel の順に比較
+		};
+
 		struct Channel{
-			const uint8_t	m_channel;
+			const ChannelId	m_channelId;
 			uint16_t		m_bank = 0;
 			uint8_t			m_programNo = 0;
 			uint8_t			m_volume = 100;			// 0～127
@@ -335,35 +342,36 @@ namespace rlib::fm {
 
 			std::map<uint8_t, std::shared_ptr<typename RendererT<T>::Note>>	m_notes;
 
-			Channel(uint8_t channel)
-				:m_channel(channel)
+			Channel(const ChannelId& id)
+				:m_channelId(id)
 			{
 			}
 
 			struct Less {
 				typedef void is_transparent;
-				bool operator()(const Channel& a, const Channel& b)				const { return a.m_channel < b.m_channel; }
-				bool operator()(const decltype(m_channel) a, const Channel& b)	const { return a < b.m_channel; }
-				bool operator()(const Channel& a, const decltype(m_channel) b)	const { return a.m_channel < b; }
+				bool operator()(const Channel& a, const Channel& b)		const { return a.m_channelId < b.m_channelId; }
+				bool operator()(const ChannelId& a, const Channel& b)	const { return a < b.m_channelId; }
+				bool operator()(const Channel& a, const ChannelId& b)	const { return a.m_channelId < b; }
 			};
 
 		};
 		std::set<Channel, typename Channel::Less>	m_channels;
 		uint16_t	m_masterVolume = 16383;	// マスターボリューム 0-～16383 (14bit)
 
-		Channel& ensureChannel(uint8_t channel) {
-			if (auto i = m_channels.find(channel); i != m_channels.end() ){
+		Channel& ensureChannel(uint8_t port, uint8_t channel) {
+			const ChannelId id{ port, static_cast<uint8_t>(channel & 0xf) };
+			if (auto i = m_channels.find(id); i != m_channels.end()) {
 				return const_cast<Channel&>(*i);
 			}
-			auto i = m_channels.emplace(channel);
+			auto i = m_channels.emplace(id);
 			return const_cast<Channel&>(*i.first);
 		}
 
-		void eventNoteOn(const midi::Event& event) {
+		void eventNoteOn(const midi::Event& event, uint8_t port) {
 			const midi::EventNoteOn &ev = static_cast<decltype(ev)>(event);
-			if (ev.velocity == 0) return eventNoteOff(event);	// noteoff?
+			if (ev.velocity == 0) return eventNoteOff(event, port);	// noteoff?
 
-			auto& channel = ensureChannel(ev.channel);
+			auto& channel = ensureChannel(port, ev.channel);
 			const auto itBank = m_presets.find(channel.m_bank);
 			if (itBank == m_presets.end()) return;
 			const auto it = itBank->second.find(channel.m_programNo);
@@ -380,9 +388,9 @@ namespace rlib::fm {
 
 		}
 
-		void eventNoteOff(const midi::Event& event) {
+		void eventNoteOff(const midi::Event& event, uint8_t port) {
 			const midi::EventNote& ev = static_cast<decltype(ev)>(event);			// NoteOn から来ることもあるので midi::EventNote に
-			auto& channel = ensureChannel(ev.channel);
+			auto& channel = ensureChannel(port, ev.channel);
 
 			if (auto i = channel.m_notes.find(ev.note); i != channel.m_notes.end()) {
 				auto sp = i->second;
@@ -392,10 +400,10 @@ namespace rlib::fm {
 
 		}
 
-		void eventControlChange(const midi::Event& event) {
+		void eventControlChange(const midi::Event& event, uint8_t port) {
 			using namespace midi;
 			const EventControlChange& ev = static_cast<decltype(ev)>(event);
-			const auto channel = [&]()->Channel& {return ensureChannel(ev.channel); };
+			const auto channel = [&]()->Channel& {return ensureChannel(port, ev.channel); };
 
 			const auto procDataEntry = [&](auto& ch) {
 				if (ch.m_rpn) {
@@ -488,18 +496,18 @@ namespace rlib::fm {
 			}
 		}
 
-		void eventProgramChange(const midi::Event& event) {
+		void eventProgramChange(const midi::Event& event, uint8_t port) {
 			using namespace midi;
 			const EventProgramChange& ev = static_cast<decltype(ev)>(event);
-			auto& channel = ensureChannel(ev.channel);
+			auto& channel = ensureChannel(port, ev.channel);
 			channel.m_programNo = ev.programNo;
 			channel.m_bank = static_cast<int16_t>(channel.m_backselect.msb) * 0x80 + channel.m_backselect.lsb;
 		}
 
-		void eventPitchBend(const midi::Event& event) {
+		void eventPitchBend(const midi::Event& event, uint8_t port) {
 			using namespace midi;
 			const auto& ev = static_cast<const EventPitchBend&>(event);
-			auto& channel = ensureChannel(ev.channel);
+			auto& channel = ensureChannel(port, ev.channel);
 			const auto& before = channel.m_pitch.get();
 			channel.m_pitch.set(ev.pitchBend, before.pitchBendRange);
 
@@ -512,7 +520,7 @@ namespace rlib::fm {
 			}
 		}
 
-		void eventSystemExclusive(const midi::Event& event) {
+		void eventSystemExclusive(const midi::Event& event, uint8_t port) {
 			using namespace midi;
 			const EventSystemExclusive& ev = static_cast<decltype(ev)>(event);
 
@@ -538,7 +546,7 @@ namespace rlib::fm {
 
 		}
 
-		void eventMeta(const midi::Event& event) {
+		void eventMeta(const midi::Event& event, uint8_t port) {
 			using namespace midi;
 			const auto& ev = static_cast<const EventMeta&>(event);
 			if (ev.type == EventMeta::Type::sequencerLocal) {
@@ -591,10 +599,12 @@ namespace rlib::fm {
 		const uint32_t		m_sampleRate;
 		uint32_t getSampleRate()const override { return m_sampleRate; }
 
-		void setMidiEvent(const midi::Event& ev)override {
+		void setMidiEvent(const midi::Event& ev)override { setMidiEvent(ev, 0); }
+
+		void setMidiEvent(const midi::Event& ev, uint8_t port)override {
 			using namespace midi;
 
-			static const std::map<std::type_index, void (MidiModuleT::*)(const midi::Event&)> map = {
+			static const std::map<std::type_index, void (MidiModuleT::*)(const midi::Event&, uint8_t)> map = {
 				{typeid(EventNoteOn),			&MidiModuleT::eventNoteOn		},
 				{typeid(EventNoteOff),			&MidiModuleT::eventNoteOff		},
 				{typeid(EventControlChange),	&MidiModuleT::eventControlChange},
@@ -604,7 +614,7 @@ namespace rlib::fm {
 				{typeid(EventSystemExclusive),	&MidiModuleT::eventSystemExclusive	},
 			};
 			if (auto i = map.find(typeid(ev)); i != map.end()) {
-				(this->*(i->second))(ev);	// 実行
+				(this->*(i->second))(ev, port);	// 実行
 			}
 		}
 
